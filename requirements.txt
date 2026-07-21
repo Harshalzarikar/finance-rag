@@ -1,0 +1,7 @@
+langchain
+langchain-google-genai
+langchain-qdrant
+qdrant-client
+langchain-community
+unstructured
+python-dotenv
