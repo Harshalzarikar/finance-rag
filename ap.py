@@ -102,6 +102,27 @@ def extract_company_filter(query, llm):
     except:
         return None
 
+def compress_query(query, llm):
+    """Uses LLM to summarize a long, noisy user prompt into a short search query."""
+    if len(query.split()) < 30:
+        return query
+        
+    prompt = PromptTemplate.from_template(
+        "You are an expert search engine query extractor.\n"
+        "Extract the core question or intent from the user's text into a single, concise search sentence.\n"
+        "Do NOT answer the question. ONLY output the compressed search query.\n\n"
+        "User Text: {text}\n"
+        "Compressed Query:"
+    )
+    from langchain_core.output_parsers import StrOutputParser
+    chain = prompt | llm | StrOutputParser()
+    try:
+        compressed = chain.invoke({"text": query}).strip()
+        print(f"  [Query Compressor] Compressed '{len(query.split())} words' down to '{len(compressed.split())} words' for Vector Search.")
+        return compressed
+    except:
+        return query
+
 def dynamic_retrieve(query, components, llm):
     company = extract_company_filter(query, llm)
     search_kwargs = {}
@@ -133,7 +154,10 @@ def dynamic_retrieve(query, components, llm):
     else:
         final_retriever = pr
         
-    return final_retriever.invoke(query)
+    # Compress the query before passing to Vector Database to avoid 256-token truncation
+    search_query = compress_query(query, llm)
+    
+    return final_retriever.invoke(search_query)
 
 def llm_rerank(docs, query, fallback_llm):
     """Uses Groq (Llama3) as a lightning fast cross-encoder to rerank/filter documents in ONE API call."""
