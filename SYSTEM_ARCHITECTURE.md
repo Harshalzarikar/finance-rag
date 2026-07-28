@@ -15,15 +15,14 @@ To prevent RAM overflows and Out-of-Memory (OOM) errors during ingestion, the sy
 
 ## 🧮 2. System Hardware Calculations (For 1,190 PDFs)
 
-If asked exactly how much disk and RAM the current system requires, here are the hard calculations:
+If asked exactly how much disk and RAM the current system requires, here are the hard, live calculations of the deployed architecture:
 
-- **Raw Data Storage:** ~1,190 PDFs * 1.2 MB average = **~1.5 GB raw PDF storage**.
-- **Vector Math:** Total 20 Million tokens divided into child chunks of 250 tokens = **~80,000 specific vectors**.
-- **Vector DB Storage (Qdrant):** 
-  - Using `all-MiniLM-L6-v2` creates a 384-dimensional vector. 
-  - `384 dimensions * 4 bytes (float32) = 1.5 KB per vector`.
-  - `80,000 vectors * 1.5 KB = 120 MB`. With Qdrant HNSW indexing and metadata payloads, the final database footprint is **~350 MB on disk**.
-- **RAM Usage (Ingestion):** Because of the 20-document batching, the system only holds ~25MB of text in memory at once. Combined with the lightweight 90MB local HuggingFace embedding model, the peak RAM required to index the entire database is **less than 250 MB**, meaning it can run on the weakest edge devices.
+- **Raw Data Storage (Input):** 1,190 PDFs * ~1.3 MB average = **1.56 GB raw PDF storage** (`./real_pdfs`).
+- **Vector DB Storage (Qdrant):** Using `all-MiniLM-L6-v2` creates a 384-dimensional vector. With HNSW indexing and metadata payloads, the final database footprint is **579 MB on disk** (`./qdrant_db_local`).
+- **Sparse Index (BM25):** The serialized keyword index for all 31,000 pages takes **164 MB** (`bm25_index.pkl`).
+- **Local Document Store:** The pickled parent chunks take **104 MB** (`./doc_store_local`).
+- **Total Output Footprint:** ~847 MB of heavily optimized search indexes.
+- **RAM Usage (Ingestion):** Because we use `DirectoryLoader.lazy_load()` with a strict `BATCH_SIZE = 20`, the peak RAM required to index all 1.56 GB of data is strictly capped at **less than 250 MB**, meaning the ingestion pipeline can run on a Raspberry Pi without crashing.
 
 ## 🚀 3. Scaling to 10 Million PDFs (Enterprise System Design)
 
@@ -45,10 +44,15 @@ If asked exactly how much disk and RAM the current system requires, here are the
 
 ## 🧩 4. The Chunking Strategy
 
-The system utilizes **Parent-Child Document Splitting**, which is critical for complex academic texts. 
+The system utilizes **Parent-Child Document Splitting** (`ParentDocumentRetriever`), which is critical for complex academic texts, preventing the "Lost in the Middle" syndrome.
 
-- **Child Chunks (1000 characters / ~250 tokens):** The system embeds very small child chunks into the Qdrant database. Dense math formulas require highly specific semantic embeddings. If the chunk is too large, specific mathematical nuances get diluted (the 'lost in the middle' problem).
-- **Parent Chunks (4000 characters / ~1000 tokens):** While the system searches against the small 250-token chunks, it feeds the LLM the larger 1000-token Parent Chunks. This ensures the LLM has the surrounding context (like the paragraph before and after the formula) to accurately generate the answer.
+1. **Child Chunks (1000 characters / ~250 tokens):** 
+   - *Why?* Dense math formulas require highly specific semantic embeddings. If the chunk is too large, the specific nuances of a mathematical equation get diluted across a giant vector.
+   - *Where do they go?* These 250-token chunks are embedded via HuggingFace and pushed to the **Qdrant Vector Database**. This is what the system mathematically searches against.
+
+2. **Parent Chunks (4000 characters / ~1000 tokens):** 
+   - *Why?* While the system searches against the tiny 250-token chunks, feeding a tiny chunk to an LLM is a disaster because it lacks context. If the chunk is just a formula, the LLM won't know *why* the formula matters.
+   - *Where do they go?* The system maps the tiny child chunk back to its original 1000-token Parent Chunk (stored in the **Local Document Store**). It feeds the massive Parent Chunk to the Groq Llama-3 API. This ensures the LLM has the surrounding context (like the paragraph before and after the formula) to accurately generate the answer!
 
 ## 🔍 3. The Retrieval Pipeline
 
