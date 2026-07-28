@@ -36,6 +36,20 @@ This system is capable of running completely locally (CPU-friendly ingestion) wh
    - Python `typing` library utilized across all functions.
    - Professional timestamped output via Python's standard `logging` module.
 
+## 🧮 System Hardware Footprint (For 1,190 PDFs)
+
+This system is engineered for maximum hardware efficiency. The following table represents the exact, live footprint required to index 1,190 quantitative finance PDFs (~31,000 pages):
+
+| Component | Size | Description |
+| :--- | :--- | :--- |
+| **Raw PDFs (Input)** | `1.56 GB` | Total disk space of the 1,190 academic papers. |
+| **Qdrant Vector DB** | `579 MB` | The HNSW semantic search index (`all-MiniLM-L6-v2` embeddings). |
+| **Sparse Index** | `164 MB` | The serialized BM25 keyword matching dictionary. |
+| **Local Doc Store** | `104 MB` | The pickled Parent chunks fed directly to the LLM. |
+| **Peak RAM (Ingestion)** | `< 250 MB` | Memory footprint kept permanently low via `lazy_load()` Batching. |
+
+*(For a detailed mathematical breakdown on how this scales to 10 Million PDFs [20.1 TB], see [SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md)).*
+
 ## 🚀 Setup & Installation
 
 ### 1. Clone & Install
