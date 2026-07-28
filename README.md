@@ -1,12 +1,12 @@
-# Quantitative Finance Enterprise RAG
+# Quantitative Finance RAG
 
-An Enterprise-grade Retrieval-Augmented Generation (RAG) architecture built to ingest, vectorize, and reason over massive datasets of highly complex academic research papers in Quantitative Finance.
+A Production-ready Retrieval-Augmented Generation (RAG) architecture built to ingest, vectorize, and reason over massive datasets of highly complex academic research papers in Quantitative Finance.
 
 This system is capable of running completely locally (CPU-friendly ingestion) while leveraging state-of-the-art AI routing, reranking, and compression techniques to achieve maximum accuracy on 30,000+ pages of dense mathematical text.
 
 ## 🌟 Key Architecture Features
 
-1. **Enterprise-Grade FastAPI Server (`api.py`)**
+1. **Production-Ready FastAPI Server (`api.py`)**
    - Production-ready REST API implemented with FastAPI.
    - Utilizes advanced `Depends()` Dependency Injection to safely manage Vector Database and LLM state per-request.
    - Pydantic models for strict I/O validation.
@@ -31,7 +31,7 @@ This system is capable of running completely locally (CPU-friendly ingestion) wh
    - Automatically scores `faithfulness`, `answer_relevancy`, `context_precision`, and `context_recall`.
    - Includes automatic API throttling (`RunConfig`) and exports results to a Pandas DataFrame/CSV for CI/CD pipelines.
 
-6. **Strict Enterprise Standards**
+6. **Strict Software Engineering Standards**
    - Fully PEP-8 compliant.
    - Python `typing` library utilized across all functions.
    - Professional timestamped output via Python's standard `logging` module.

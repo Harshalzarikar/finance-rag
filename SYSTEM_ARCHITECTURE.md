@@ -24,7 +24,7 @@ If asked exactly how much disk and RAM the current system requires, here are the
 - **Total Output Footprint:** ~847 MB of heavily optimized search indexes.
 - **RAM Usage (Ingestion):** Because we use `DirectoryLoader.lazy_load()` with a strict `BATCH_SIZE = 20`, the peak RAM required to index all 1.56 GB of data is strictly capped at **less than 250 MB**, meaning the ingestion pipeline can run on a Raspberry Pi without crashing.
 
-## 🚀 3. Scaling to 10 Million PDFs (Enterprise System Design)
+## 🚀 3. Scaling to 10 Million PDFs (Distributed System Design)
 
 *Interview Question: "This works on your laptop for 1k PDFs, but how do we scale this exact architecture to 10 Million internal corporate documents?"*
 
