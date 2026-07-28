@@ -1,4 +1,4 @@
-# Quantitative Finance Agentic RAG
+# Quantitative Finance Enterprise RAG
 
 An Enterprise-grade Retrieval-Augmented Generation (RAG) architecture built to ingest, vectorize, and reason over massive datasets of highly complex academic research papers in Quantitative Finance.
 
@@ -6,14 +6,16 @@ This system is capable of running completely locally (CPU-friendly ingestion) wh
 
 ## 🌟 Key Architecture Features
 
-1. **Massive Data Acquisition (`download_real_pdfs.py`)**
-   - Autonomously scrapes the ArXiv API for thousands of Quantitative Finance (`q-fin`) research papers.
-   - Saves real-world academic PDFs (charts, LaTeX math, data tables) locally for processing.
+1. **Enterprise-Grade FastAPI Server (`api.py`)**
+   - Production-ready REST API implemented with FastAPI.
+   - Utilizes advanced `Depends()` Dependency Injection to safely manage Vector Database and LLM state per-request.
+   - Pydantic models for strict I/O validation.
 
 2. **High-Speed Memory-Safe Ingestion (`retriever_setup.py`)**
    - Uses `PyMuPDF` (C++) for the fastest, most accurate PDF text extraction available in Python.
-   - Implements strict Batching Protocols (`BATCH_SIZE=20`) to safely process tens of thousands of pages on standard hardware without RAM explosions.
+   - Implements strict `lazy_load()` Streaming and Batching Protocols (`BATCH_SIZE=20`) to safely process tens of thousands of pages on standard hardware without RAM explosions (Footprint capped at < 250 MB).
    - Persists data to a **Local Qdrant Vector Database** using `all-MiniLM-L6-v2` embeddings.
+   - Uses `ParentDocumentRetriever` with explicit context preservation (`chunk_overlap=400` / `100`).
 
 3. **Hybrid Ensemble Retrieval (`build_bm25.py`)**
    - Builds a high-speed BM25 Keyword Search dictionary.
@@ -28,6 +30,11 @@ This system is capable of running completely locally (CPU-friendly ingestion) wh
    - Implements the industry-standard **Ragas Framework** to mathematically grade the architecture.
    - Automatically scores `faithfulness`, `answer_relevancy`, `context_precision`, and `context_recall`.
    - Includes automatic API throttling (`RunConfig`) and exports results to a Pandas DataFrame/CSV for CI/CD pipelines.
+
+6. **Strict Enterprise Standards**
+   - Fully PEP-8 compliant.
+   - Python `typing` library utilized across all functions.
+   - Professional timestamped output via Python's standard `logging` module.
 
 ## 🚀 Setup & Installation
 
@@ -64,7 +71,7 @@ python download_real_pdfs.py
 ```bash
 python retriever_setup.py
 ```
-*(Chunks 30,000+ pages and embeds ~230,000 vectors into `./qdrant_db_local`. This takes ~1 hour on a standard CPU).*
+*(Chunks 30,000+ pages and embeds ~80,000 vectors into `./qdrant_db_local`. This takes ~1 hour on a standard CPU).*
 
 **Step 3: Build the Keyword Dictionary**
 ```bash
@@ -72,11 +79,17 @@ python build_bm25.py
 ```
 *(Builds the exact keyword matching index).*
 
-**Step 4: Run the RAG System**
+**Step 4: Run the API Server**
+```bash
+uvicorn api:app
+```
+*(Starts the production FastAPI server on `localhost:8000`)*
+
+**Alternative: Run the Terminal Chat System**
 ```bash
 python ap.py
 ```
-*(Starts the interactive terminal where you can ask complex finance questions!)*
+*(Starts an interactive terminal where you can ask complex finance questions!)*
 
 **Step 5: Evaluate the Architecture**
 ```bash
