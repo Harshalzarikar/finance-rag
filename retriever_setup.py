@@ -77,8 +77,8 @@ def main() -> None:
     os.makedirs(STORE_DIR, exist_ok=True)
     store = PickleFileStore(STORE_DIR)
 
-    parent_splitter = RecursiveCharacterTextSplitter(chunk_size=4000)
-    child_splitter = RecursiveCharacterTextSplitter(chunk_size=1000)
+    parent_splitter = RecursiveCharacterTextSplitter(chunk_size=4000, chunk_overlap=400)
+    child_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
 
     logger.info("Setting up ParentDocumentRetriever...")
     retriever = ParentDocumentRetriever(

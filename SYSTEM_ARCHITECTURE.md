@@ -29,11 +29,10 @@ If asked exactly how much disk and RAM the current system requires, here are the
 *Interview Question: "This works on your laptop for 1k PDFs, but how do we scale this exact architecture to 10 Million internal corporate documents?"*
 
 **The Mathematical Bottleneck:**
-10 Million PDFs is an ~8,400x scale-up from our current 1,190 PDF prototype.
-- **Raw Storage (Input):** `10M * ~1.31 MB = 13.1 Terabytes (TB)`.
-- **Vector DB Size (Qdrant):** `10M * ~0.48 MB = 4.8 Terabytes (TB)` of high-speed NVMe RAM/Storage required for the HNSW index.
-- **Sparse Index & Doc Store:** `10M * ~0.22 MB = 2.2 Terabytes (TB)`.
-- **Total Storage Required:** `13.1 TB + 4.8 TB + 2.2 TB = ~20.1 Terabytes (TB)` of total distributed system storage!
+10 Million PDFs is an ~8,400x scale-up.
+- **Raw Storage:** `10M * 1.2 MB = 12 Terabytes (TB)`.
+- **Total Vectors:** `80,000 * 8,400 = 672 Million vectors`.
+- **Vector DB Size:** `672M * 1.5 KB = ~1 TB raw`. With HNSW index, **~3.5 TB of high-speed NVMe RAM/Storage required**.
 
 **The Distributed Architecture Answer:**
 > *"To scale to 10 Million PDFs, the architecture must transition from a monolithic local script to a distributed microservice cluster. 

@@ -34,7 +34,7 @@ def main() -> None:
     )
 
     logger.info("Lazily loading and splitting into Parent chunks...")
-    parent_splitter = RecursiveCharacterTextSplitter(chunk_size=4000)
+    parent_splitter = RecursiveCharacterTextSplitter(chunk_size=4000, chunk_overlap=400)
     
     parent_docs = []
     # Use lazy_load to avoid OOM errors

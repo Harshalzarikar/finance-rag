@@ -89,8 +89,8 @@ def setup_rag() -> Tuple[Dict[str, Any], BaseChatModel]:
     logger.info("Connecting to Local Document Store...")
     store = PickleFileStore(STORE_DIR)
 
-    parent_splitter = RecursiveCharacterTextSplitter(chunk_size=4000)
-    child_splitter = RecursiveCharacterTextSplitter(chunk_size=1000)
+    parent_splitter = RecursiveCharacterTextSplitter(chunk_size=4000, chunk_overlap=400)
+    child_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
 
     logger.info("Initializing AI Models...")
     if os.environ.get("GROQ_API_KEY"):
