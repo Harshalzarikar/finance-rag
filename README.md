@@ -1,14 +1,14 @@
 # Quantitative Finance RAG
 
-A Production-ready Retrieval-Augmented Generation (RAG) architecture built to ingest, vectorize, and reason over massive datasets of highly complex academic research papers in Quantitative Finance.
+A local Retrieval-Augmented Generation (RAG) pipeline built to ingest, vectorize, and reason over academic research papers in Quantitative Finance.
 
 This system is capable of running completely locally (CPU-friendly ingestion) while leveraging state-of-the-art AI routing, reranking, and compression techniques to achieve maximum accuracy on 30,000+ pages of dense mathematical text.
 
 ## 🌟 Key Architecture Features
 
-1. **Production-Ready FastAPI Server (`api.py`)**
-   - Production-ready REST API implemented with FastAPI.
-   - Utilizes advanced `Depends()` Dependency Injection to safely manage Vector Database and LLM state per-request.
+1. **FastAPI Server (`api.py`)**
+   - REST API implemented with FastAPI.
+   - Utilizes `Depends()` for dependency injection to manage retrievers.
    - Pydantic models for strict I/O validation.
 
 2. **High-Speed Memory-Safe Ingestion (`retriever_setup.py`)**
@@ -21,13 +21,13 @@ This system is capable of running completely locally (CPU-friendly ingestion) wh
    - Builds a high-speed BM25 Keyword Search dictionary.
    - Combines Semantic Vector Search (Qdrant) with Keyword Search (BM25) via a weighted `EnsembleRetriever`.
 
-4. **Agentic Query Compression & Mathematical Reranking (`ap.py`)**
-   - **Agentic Compressor:** Uses a lightweight LLM to compress noisy user questions into dense semantic search vectors to prevent token-truncation.
-   - **Cohere Reranker:** Passes the candidate documents through the official `Cohere Rerank API` to mathematically filter out bad chunks before passing context to the final generation model.
+4. **Query Compression & Reranking (`core.py`)**
+   - **Compressor:** Uses a lightweight LLM to summarize long user prompts into semantic search queries to avoid token-truncation.
+   - **Cohere Reranker:** Passes the candidate documents through a cross-encoder (Cohere Rerank API) to score and filter chunks.
    - **Llama 3 Generation:** Synthesizes the final highly technical answer using Groq's high-speed Llama 3 API (or Gemini fallback).
 
 5. **LLM-as-a-Judge Evaluation (`production_eval.py`)**
-   - Implements the industry-standard **Ragas Framework** to mathematically grade the architecture.
+   - Implements the **Ragas Framework** to run automated evaluations against a constrained test set.
    - Automatically scores `faithfulness`, `answer_relevancy`, `context_precision`, and `context_recall`.
    - Includes automatic API throttling (`RunConfig`) and exports results to a Pandas DataFrame/CSV for CI/CD pipelines.
 
@@ -46,7 +46,7 @@ This system is engineered for maximum hardware efficiency. The following table r
 | **Qdrant Vector DB** | `579 MB` | The HNSW semantic search index (`all-MiniLM-L6-v2` embeddings). |
 | **Sparse Index** | `164 MB` | The serialized BM25 keyword matching dictionary. |
 | **Local Doc Store** | `104 MB` | The pickled Parent chunks fed directly to the LLM. |
-| **Peak RAM (Ingestion)** | `< 250 MB` | Memory footprint kept permanently low via `lazy_load()` Batching. |
+| **Peak RAM (Ingestion)** | `< 250 MB` | Local memory footprint kept low via `lazy_load()` batching (inference relies on cloud APIs). |
 
 *(For a detailed mathematical breakdown on how this scales to 10 Million PDFs [20.1 TB], see [SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md)).*
 

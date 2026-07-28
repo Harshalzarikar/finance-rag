@@ -106,42 +106,24 @@ def setup_rag() -> Tuple[Dict[str, Any], BaseChatModel]:
         logger.warning(f"Could not load BM25 index ({e}). Keyword search will be disabled.")
         bm25_retriever = None
 
+    pr = ParentDocumentRetriever(
+        vectorstore=vectorstore,
+        docstore=store,
+        child_splitter=child_splitter,
+        parent_splitter=parent_splitter,
+    )
+
+    if bm25_retriever:
+        final_retriever = EnsembleRetriever(
+            retrievers=[bm25_retriever, pr], weights=[0.4, 0.6]
+        )
+    else:
+        final_retriever = pr
+
     components = {
-        "vectorstore": vectorstore,
-        "store": store,
-        "parent_splitter": parent_splitter,
-        "child_splitter": child_splitter,
-        "bm25_retriever": bm25_retriever,
+        "final_retriever": final_retriever,
     }
     return components, llm
-
-
-def extract_company_filter(query: str, llm: BaseChatModel) -> Optional[str]:
-    """
-    Extracts the targeted company name from the user's query if present.
-
-    Args:
-        query (str): The raw user query.
-        llm (BaseChatModel): The language model to use for extraction.
-
-    Returns:
-        Optional[str]: The company name, or None if no specific company is targeted.
-    """
-    prompt = PromptTemplate.from_template(
-        "You are a query analyzer. Extract the exact name of the company the user is asking about.\n"
-        "If they are asking a general question (e.g. 'any companies', 'escaped prisoner'), return EXACTLY the word 'NONE'.\n"
-        "Query: {query}\n"
-        "Company Name:"
-    )
-    try:
-        response = llm.invoke(prompt.format(query=query)).content.strip()
-        response = re.sub(r'["\']', '', str(response))
-        if response.upper() == "NONE":
-            return None
-        return response
-    except Exception as e:
-        logger.error(f"Failed to extract company filter: {e}")
-        return None
 
 
 def compress_query(query: str, llm: BaseChatModel) -> str:
@@ -177,7 +159,7 @@ def compress_query(query: str, llm: BaseChatModel) -> str:
 
 def dynamic_retrieve(query: str, components: Dict[str, Any], llm: BaseChatModel) -> List[Document]:
     """
-    Executes a hybrid search using both BM25 Sparse and Qdrant Dense vector retrieval.
+    Executes a hybrid search using the pre-built EnsembleRetriever.
 
     Args:
         query (str): The search query.
@@ -187,23 +169,7 @@ def dynamic_retrieve(query: str, components: Dict[str, Any], llm: BaseChatModel)
     Returns:
         List[Document]: A list of relevant retrieved documents.
     """
-    search_kwargs: Dict[str, Any] = {}
-
-    pr = ParentDocumentRetriever(
-        vectorstore=components["vectorstore"],
-        docstore=components["store"],
-        child_splitter=components["child_splitter"],
-        parent_splitter=components["parent_splitter"],
-        search_kwargs=search_kwargs,
-    )
-
-    if components["bm25_retriever"]:
-        final_retriever = EnsembleRetriever(
-            retrievers=[components["bm25_retriever"], pr], weights=[0.4, 0.6]
-        )
-    else:
-        final_retriever = pr
-
+    final_retriever = components["final_retriever"]
     search_query = compress_query(query, llm)
     return final_retriever.invoke(search_query)
 

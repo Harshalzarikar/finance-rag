@@ -13,7 +13,7 @@ from qdrant_client.models import Distance, VectorParams
 from tqdm import tqdm
 
 # Import the shared PickleFileStore from our main backend module
-from ap import PickleFileStore
+from core import PickleFileStore
 
 # ---------------------------------------------------------------------------
 # Setup Logging & Environment

@@ -24,23 +24,14 @@ If asked exactly how much disk and RAM the current system requires, here are the
 - **Total Output Footprint:** ~847 MB of heavily optimized search indexes.
 - **RAM Usage (Ingestion):** Because we use `DirectoryLoader.lazy_load()` with a strict `BATCH_SIZE = 20`, the peak RAM required to index all 1.56 GB of data is strictly capped at **less than 250 MB**, meaning the ingestion pipeline can run on a Raspberry Pi without crashing.
 
-## 🚀 3. Scaling to 10 Million PDFs (Distributed System Design)
+## 3. Future Scalability Considerations (10M+ Documents)
 
-*Interview Question: "This works on your laptop for 1k PDFs, but how do we scale this exact architecture to 10 Million internal corporate documents?"*
+The current pipeline is designed for local prototyping (1,190 PDFs). Scaling to millions of documents would require a fundamentally different architecture:
 
-**The Mathematical Bottleneck:**
-10 Million PDFs is an ~8,400x scale-up.
-- **Raw Storage:** `10M * 1.2 MB = 12 Terabytes (TB)`.
-- **Total Vectors:** `80,000 * 8,400 = 672 Million vectors`.
-- **Vector DB Size:** `672M * 1.5 KB = ~1 TB raw`. With HNSW index, **~3.5 TB of high-speed NVMe RAM/Storage required**.
-
-**The Distributed Architecture Answer:**
-> *"To scale to 10 Million PDFs, the architecture must transition from a monolithic local script to a distributed microservice cluster. 
-> 
-> 1. **Storage:** All 12 TB of raw PDFs must be offloaded to an Object Store like **AWS S3**.
-> 2. **Ingestion Queue:** We cannot sequentially process 10M files. I would use an event-driven architecture where S3 uploads trigger **AWS SQS** messages, which are consumed by hundreds of parallel **AWS Batch / Kubernetes (EKS)** worker nodes.
-> 3. **GPU Embeddings:** Local CPU embedding is too slow for 160 Billion tokens. The worker nodes must route text to a dedicated embedding microservice running on **Nvidia T4/A100 GPUs** via TensorRT for maximum throughput.
-> 4. **Sharded Vector Database:** A single Qdrant instance cannot hold 3.5 TB of vectors in RAM. I would deploy a **Qdrant Cloud Cluster** with horizontal sharding, partitioning the 672 Million vectors across multiple nodes to ensure millisecond retrieval latency."*
+- **Storage:** Offloading raw PDFs to an Object Store (e.g., AWS S3).
+- **Ingestion:** Replacing the local script with an event-driven queue (e.g., SQS) and distributed workers.
+- **Embeddings:** Utilizing dedicated GPU instances for embedding generation rather than local CPU inference.
+- **Vector DB:** Migrating from local Qdrant to a managed, sharded cluster to handle TBs of vector data.
 
 ## 🧩 4. The Chunking Strategy
 
@@ -54,7 +45,7 @@ The system utilizes **Parent-Child Document Splitting** (`ParentDocumentRetrieve
    - *Why?* While the system searches against the tiny 250-token chunks, feeding a tiny chunk to an LLM is a disaster because it lacks context. If the chunk is just a formula, the LLM won't know *why* the formula matters.
    - *Where do they go?* The system maps the tiny child chunk back to its original 1000-token Parent Chunk (stored in the **Local Document Store**). It feeds the massive Parent Chunk to the Groq Llama-3 API. This ensures the LLM has the surrounding context (like the paragraph before and after the formula) to accurately generate the answer!
 
-## 🔍 3. The Retrieval Pipeline
+## 5. The Retrieval Pipeline
 
 In quantitative finance, users often search for highly specific acronyms (like 'LTRO' or 'e-MID'). Standard semantic vector search is great for conceptual matching, but often fails at exact keyword matching. 
 
@@ -62,22 +53,20 @@ To solve this, the architecture uses an **Ensemble Retriever**:
 1. A **Qdrant Vector Database** (using HuggingFace `all-MiniLM-L6-v2` embeddings) for semantic meaning.
 2. A **BM25 Sparse Index** for exact keyword matching.
 
-The system queries both databases simultaneously and uses Reciprocal Rank Fusion (RRF) to combine the results, guaranteeing that exact formulas or acronyms are not missed.
+The system queries both databases simultaneously and uses Reciprocal Rank Fusion (RRF) to combine the results.
 
-## 🧠 4. Reranking & Generation
+## 6. Reranking & Generation
 
-Retrieving from 31,000 pages yields a lot of noisy candidate chunks. Feeding all of them to an LLM leads to context overflow and hallucination.
+Retrieving from 31,000 pages yields candidate chunks with varying relevance. 
 
-1. **Cohere Rerank API:** The pipeline implements a cross-encoder (Cohere Rerank 3) that mathematically scores the relevance of the top 7 retrieved chunks against the user's query, filtering out the bottom 5.
-2. **Llama 3 (Groq):** Only the absolute top 2 highest-confidence documents (roughly 2000 tokens) are passed to the Groq Llama-3 API. By restricting the context window to only mathematically verified chunks, hallucination is minimized.
+1. **Cohere Rerank API:** The pipeline implements a cross-encoder (Cohere Rerank 3) that scores the relevance of the retrieved chunks against the user's query, filtering out the lowest-scoring chunks.
+2. **Llama 3 (Groq):** Only the highest-confidence documents are passed to the Groq Llama-3 API.
 
-## 💯 5. Evaluation (LLM-as-a-Judge)
+## 7. Evaluation (LLM-as-a-Judge)
 
-The accuracy of this pipeline is not assumed; it is mathematically verified using the industry-standard **Ragas Framework**. 
+The pipeline incorporates the **Ragas Framework** for evaluation. 
 
-The evaluation pipeline (`production_eval.py`) tests the architecture and exports a Pandas DataFrame scorecard, achieving:
-- **Context Precision: 1.0 (100%)**
-- **Context Recall: 1.0 (100%)**
-- **Faithfulness: 1.0 (100%)**
-
-These metrics prove the Ensemble + Cohere pipeline flawlessly isolates the correct mathematical formulas from the 31,000 pages without injecting irrelevant noise into the prompt.
+The evaluation script (`production_eval.py`) runs against a small, constrained set of known Q&A pairs. While it currently achieves perfect 1.0 scores on this specific test set, these metrics represent a baseline sanity check rather than generalized production performance across unseen domains.
+- **Context Precision: 1.0**
+- **Context Recall: 1.0**
+- **Faithfulness: 1.0**

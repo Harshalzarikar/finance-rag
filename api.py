@@ -9,7 +9,7 @@ from langchain_core.prompts import PromptTemplate
 from pydantic import BaseModel
 
 # Import RAG components from our backend
-from ap import cohere_rerank, dynamic_retrieve, setup_rag
+from core import cohere_rerank, dynamic_retrieve, setup_rag
 
 load_dotenv()
 
