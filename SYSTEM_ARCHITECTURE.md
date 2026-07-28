@@ -13,7 +13,37 @@ This document outlines the exact technical specifications, scale, and architectu
 **Memory-Safe Processing:**
 To prevent RAM overflows and Out-of-Memory (OOM) errors during ingestion, the system implements a strict **Batch Processing Architecture**. Using `PyMuPDFLoader` with multithreading, the system pushes embeddings to the Qdrant Vector database in exact batches of `20` documents at a time. This keeps the memory footprint strictly capped while processing all 31,000 pages locally.
 
-## 🧩 2. The Chunking Strategy
+## 🧮 2. System Hardware Calculations (For 1,190 PDFs)
+
+If asked exactly how much disk and RAM the current system requires, here are the hard calculations:
+
+- **Raw Data Storage:** ~1,190 PDFs * 1.2 MB average = **~1.5 GB raw PDF storage**.
+- **Vector Math:** Total 20 Million tokens divided into child chunks of 250 tokens = **~80,000 specific vectors**.
+- **Vector DB Storage (Qdrant):** 
+  - Using `all-MiniLM-L6-v2` creates a 384-dimensional vector. 
+  - `384 dimensions * 4 bytes (float32) = 1.5 KB per vector`.
+  - `80,000 vectors * 1.5 KB = 120 MB`. With Qdrant HNSW indexing and metadata payloads, the final database footprint is **~350 MB on disk**.
+- **RAM Usage (Ingestion):** Because of the 20-document batching, the system only holds ~25MB of text in memory at once. Combined with the lightweight 90MB local HuggingFace embedding model, the peak RAM required to index the entire database is **less than 250 MB**, meaning it can run on the weakest edge devices.
+
+## 🚀 3. Scaling to 10 Million PDFs (Enterprise System Design)
+
+*Interview Question: "This works on your laptop for 1k PDFs, but how do we scale this exact architecture to 10 Million internal corporate documents?"*
+
+**The Mathematical Bottleneck:**
+10 Million PDFs is an ~8,400x scale-up.
+- **Raw Storage:** `10M * 1.2 MB = 12 Terabytes (TB)`.
+- **Total Vectors:** `80,000 * 8,400 = 672 Million vectors`.
+- **Vector DB Size:** `672M * 1.5 KB = ~1 TB raw`. With HNSW index, **~3.5 TB of high-speed NVMe RAM/Storage required**.
+
+**The Distributed Architecture Answer:**
+> *"To scale to 10 Million PDFs, the architecture must transition from a monolithic local script to a distributed microservice cluster. 
+> 
+> 1. **Storage:** All 12 TB of raw PDFs must be offloaded to an Object Store like **AWS S3**.
+> 2. **Ingestion Queue:** We cannot sequentially process 10M files. I would use an event-driven architecture where S3 uploads trigger **AWS SQS** messages, which are consumed by hundreds of parallel **AWS Batch / Kubernetes (EKS)** worker nodes.
+> 3. **GPU Embeddings:** Local CPU embedding is too slow for 160 Billion tokens. The worker nodes must route text to a dedicated embedding microservice running on **Nvidia T4/A100 GPUs** via TensorRT for maximum throughput.
+> 4. **Sharded Vector Database:** A single Qdrant instance cannot hold 3.5 TB of vectors in RAM. I would deploy a **Qdrant Cloud Cluster** with horizontal sharding, partitioning the 672 Million vectors across multiple nodes to ensure millisecond retrieval latency."*
+
+## 🧩 4. The Chunking Strategy
 
 The system utilizes **Parent-Child Document Splitting**, which is critical for complex academic texts. 
 
