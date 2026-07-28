@@ -17,7 +17,6 @@ from dotenv import load_dotenv
 from ragas import evaluate
 from ragas.metrics import (
     faithfulness,
-    answer_relevancy,
     context_precision,
     context_recall,
 )
@@ -117,7 +116,6 @@ def main():
 
     metrics = [
         faithfulness,
-        answer_relevancy,
         context_precision,
         context_recall
     ]
