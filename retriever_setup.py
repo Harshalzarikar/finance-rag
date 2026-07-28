@@ -7,12 +7,12 @@ from langchain_classic.retrievers import ParentDocumentRetriever
 from langchain_community.document_loaders import DirectoryLoader, PyMuPDFLoader
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_qdrant import QdrantVectorStore
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 from tqdm import tqdm
 
-from storage import PickleFileStore
+from storage import PickleFileStore, get_splitters
 
 # ---------------------------------------------------------------------------
 # Setup Logging & Environment
@@ -83,8 +83,7 @@ def main() -> None:
     os.makedirs(STORE_DIR, exist_ok=True)
     store = PickleFileStore(STORE_DIR)
 
-    parent_splitter = RecursiveCharacterTextSplitter(chunk_size=4000, chunk_overlap=400)
-    child_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    parent_splitter, child_splitter = get_splitters()
 
     logger.info("Setting up ParentDocumentRetriever...")
     retriever = ParentDocumentRetriever(

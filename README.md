@@ -77,7 +77,7 @@ GROQ_API_KEY="your_groq_key_here"
 
 **Step 1: Download the Dataset**
 ```bash
-python download_real_pdfs.py
+python download_pdfs.py
 ```
 *(Downloads 1,200 PDFs into `./real_pdfs`)*
 

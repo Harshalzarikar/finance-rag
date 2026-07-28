@@ -24,3 +24,11 @@ class PickleFileStore(BaseStore):
 
     def yield_keys(self, prefix: Optional[str] = None) -> Any:
         yield from self._store.yield_keys(prefix=prefix)
+
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+def get_splitters() -> Tuple[RecursiveCharacterTextSplitter, RecursiveCharacterTextSplitter]:
+    """Returns the standardized Parent and Child text splitters used across the system."""
+    parent_splitter = RecursiveCharacterTextSplitter(chunk_size=4000, chunk_overlap=400)
+    child_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    return parent_splitter, child_splitter

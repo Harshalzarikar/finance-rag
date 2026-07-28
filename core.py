@@ -18,7 +18,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_qdrant import QdrantVectorStore
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 from qdrant_client import QdrantClient
 
 # ---------------------------------------------------------------------------
@@ -43,7 +43,7 @@ QDRANT_DB_DIR = "./qdrant_db_local"
 STORE_DIR = "./doc_store_local"
 
 
-from storage import PickleFileStore
+from storage import PickleFileStore, get_splitters
 
 
 def setup_rag() -> Tuple[Dict[str, Any], BaseChatModel]:
@@ -72,8 +72,7 @@ def setup_rag() -> Tuple[Dict[str, Any], BaseChatModel]:
     logger.info("Connecting to Local Document Store...")
     store = PickleFileStore(STORE_DIR)
 
-    parent_splitter = RecursiveCharacterTextSplitter(chunk_size=4000, chunk_overlap=400)
-    child_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    parent_splitter, child_splitter = get_splitters()
 
     logger.info("Initializing AI Models...")
     if os.environ.get("GROQ_API_KEY"):

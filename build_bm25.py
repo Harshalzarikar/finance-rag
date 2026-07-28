@@ -4,7 +4,7 @@ import pickle
 
 from langchain_community.document_loaders import DirectoryLoader, PyMuPDFLoader
 from langchain_community.retrievers import BM25Retriever
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from storage import get_splitters
 from tqdm import tqdm
 
 # ---------------------------------------------------------------------------
@@ -30,11 +30,10 @@ def main() -> None:
         DOCS_DIR,
         glob="**/*.pdf",
         loader_cls=PyMuPDFLoader,
-        use_multithreading=True,
     )
 
     logger.info("Lazily loading and splitting into Parent chunks...")
-    parent_splitter = RecursiveCharacterTextSplitter(chunk_size=4000, chunk_overlap=400)
+    parent_splitter, _ = get_splitters()
     
     parent_docs = []
     # Use lazy_load to avoid OOM errors

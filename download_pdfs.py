@@ -1,6 +1,18 @@
 import arxiv
 import os
 import time
+import requests
+from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
+@retry(
+    wait=wait_exponential(multiplier=2, min=2, max=30),
+    stop=stop_after_attempt(5),
+    retry=retry_if_exception_type(requests.exceptions.RequestException)
+)
+def download_pdf(url: str, filepath: str):
+    response = requests.get(url, timeout=30)
+    response.raise_for_status()
+    with open(filepath, 'wb') as f:
+        f.write(response.content)
 
 def main():
     # Number of PDFs to download (Configurable)
@@ -39,15 +51,11 @@ def main():
         print(f"[{i+1}/{len(papers)}] Downloading: {paper.title[:60]}...")
         
         try:
-            import requests
-            response = requests.get(paper.pdf_url)
-            response.raise_for_status()
-            with open(filepath, 'wb') as f:
-                f.write(response.content)
+            download_pdf(paper.pdf_url, filepath)
             # Sleep for 1 second to respect ArXiv API rate limits
             time.sleep(1.0)
         except Exception as e:
-            print(f"  [Error] Failed to download {filename}: {e}")
+            print(f"  [Error] Failed to download {filename} after retries: {e}")
             
     print(f"\nSuccessfully downloaded papers to {os.path.abspath(SAVE_DIR)}")
 
