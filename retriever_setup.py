@@ -25,24 +25,14 @@ EMBEDDING_DIM = 384  # all-MiniLM-L6-v2 produces 384-dimensional vectors
 
 
 def main():
-    print(f"Loading documents from {DOCS_DIR}...")
+    print("Initializing Document Loader...")
     loader = DirectoryLoader(
         DOCS_DIR,
         glob="**/*.pdf",
         loader_cls=PyMuPDFLoader,
         use_multithreading=True,
-        show_progress=True,
     )
-    docs = loader.load()
-    print(f"Loaded {len(docs)} documents.")
-
-    print("Extracting Metadata (Paper Titles)...")
-    import re
-    for doc in docs:
-        first_line = doc.page_content.split('\n')[0].strip()
-        # For academic papers, the first line is usually the title or authors
-        company = first_line[:50] if first_line else "ArXiv Paper"
-        doc.metadata["company"] = company
+    # We will use .lazy_load() later to stream documents one-by-one!
 
     # -----------------------------------------------------------------------
     # Local Embeddings — NO API keys, NO rate limits, NO internet needed!
@@ -113,17 +103,32 @@ def main():
     )
 
     # -----------------------------------------------------------------------
-    # Index documents in batches (no rate limits — pure CPU speed!)
+    # Index documents in TRUE lazy batches to prevent RAM spikes!
     # -----------------------------------------------------------------------
     BATCH_SIZE = 20
-    total_docs = len(docs)
-    batches = [docs[i : i + BATCH_SIZE] for i in range(0, total_docs, BATCH_SIZE)]
-
-    print(f"\nIndexing {len(batches)} batches of ~{BATCH_SIZE} documents each...")
+    print(f"\nLazily streaming and indexing documents in batches of {BATCH_SIZE}...")
     start_time = time.time()
 
-    for idx, batch in enumerate(tqdm(batches, desc="Indexing Documents")):
+    batch = []
+    
+    # lazy_load() yields one document at a time directly from the hard drive, 
+    # preventing the massive 11 GB RAM spike!
+    for doc in tqdm(loader.lazy_load(), desc="Streaming & Indexing PDFs"):
+        # Add metadata on the fly
+        first_line = doc.page_content.split('\n')[0].strip()
+        doc.metadata["company"] = first_line[:50] if first_line else "ArXiv Paper"
+        
+        batch.append(doc)
+        
+        # When batch is full, process it and clear it from RAM
+        if len(batch) >= BATCH_SIZE:
+            retriever.add_documents(batch)
+            batch.clear() # FREES RAM!
+
+    # Process any remaining documents in the final partial batch
+    if batch:
         retriever.add_documents(batch)
+        batch.clear()
 
     total_time = time.time() - start_time
     print(f"\nIndexing Complete! Total time: {total_time:.1f} seconds ({total_time/60:.2f} minutes)")
