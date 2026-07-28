@@ -24,12 +24,17 @@ This system is capable of running completely locally (CPU-friendly ingestion) wh
    - **Cohere Reranker:** Passes the candidate documents through the official `Cohere Rerank API` to mathematically filter out bad chunks before passing context to the final generation model.
    - **Llama 3 Generation:** Synthesizes the final highly technical answer using Groq's high-speed Llama 3 API (or Gemini fallback).
 
+5. **LLM-as-a-Judge Evaluation (`production_eval.py`)**
+   - Implements the industry-standard **Ragas Framework** to mathematically grade the architecture.
+   - Automatically scores `faithfulness`, `answer_relevancy`, `context_precision`, and `context_recall`.
+   - Includes automatic API throttling (`RunConfig`) and exports results to a Pandas DataFrame/CSV for CI/CD pipelines.
+
 ## 🚀 Setup & Installation
 
 ### 1. Clone & Install
 ```bash
-git clone https://github.com/your-username/advance-rag.git
-cd advance-rag
+git clone https://github.com/Harshalzarikar/finance-rag.git
+cd finance-rag
 python -m venv venv
 # Activate the virtual environment (Windows)
 .\venv\Scripts\Activate.ps1 
@@ -72,3 +77,9 @@ python build_bm25.py
 python ap.py
 ```
 *(Starts the interactive terminal where you can ask complex finance questions!)*
+
+**Step 5: Evaluate the Architecture**
+```bash
+python production_eval.py
+```
+*(Runs the Ragas test cases and generates a `ragas_evaluation_results.csv` scorecard!)*
