@@ -3,7 +3,7 @@ import json
 import time
 
 from dotenv import load_dotenv
-from langchain_community.document_loaders import DirectoryLoader, TextLoader
+from langchain_community.document_loaders import DirectoryLoader, PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
@@ -18,7 +18,7 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-DOCS_DIR = "./documents"
+DOCS_DIR = "./real_pdfs"
 QDRANT_DB_DIR = "./qdrant_db_local"
 STORE_DIR = "./doc_store_local"
 EMBEDDING_DIM = 384  # all-MiniLM-L6-v2 produces 384-dimensional vectors
@@ -28,30 +28,20 @@ def main():
     print(f"Loading documents from {DOCS_DIR}...")
     loader = DirectoryLoader(
         DOCS_DIR,
-        glob="**/*.txt",
-        loader_cls=TextLoader,
-        loader_kwargs={"encoding": "utf-8"},
+        glob="**/*.pdf",
+        loader_cls=PyMuPDFLoader,
         use_multithreading=True,
         show_progress=True,
     )
     docs = loader.load()
     print(f"Loaded {len(docs)} documents.")
 
-    print("Extracting Metadata (Company Tags)...")
+    print("Extracting Metadata (Paper Titles)...")
     import re
     for doc in docs:
         first_line = doc.page_content.split('\n')[0].strip()
-        company = "Unknown"
-        if " (" in first_line:
-            company = first_line.split(" (")[0].strip()
-        elif " to Acquire " in first_line:
-            company = first_line.split(" to Acquire ")[0].strip()
-        else:
-            match = re.split(r'\b(Inc\.|Corp\.|Q[1-4]|Announces|to)\b', first_line, 1)
-            if match and len(match) > 0:
-                company = match[0].strip()
-                if not company: company = "Unknown"
-            
+        # For academic papers, the first line is usually the title or authors
+        company = first_line[:50] if first_line else "ArXiv Paper"
         doc.metadata["company"] = company
 
     # -----------------------------------------------------------------------
@@ -125,7 +115,7 @@ def main():
     # -----------------------------------------------------------------------
     # Index documents in batches (no rate limits — pure CPU speed!)
     # -----------------------------------------------------------------------
-    BATCH_SIZE = 500
+    BATCH_SIZE = 20
     total_docs = len(docs)
     batches = [docs[i : i + BATCH_SIZE] for i in range(0, total_docs, BATCH_SIZE)]
 
@@ -137,7 +127,6 @@ def main():
 
     total_time = time.time() - start_time
     print(f"\nIndexing Complete! Total time: {total_time:.1f} seconds ({total_time/60:.2f} minutes)")
-
     # -----------------------------------------------------------------------
     # Test Query
     # -----------------------------------------------------------------------

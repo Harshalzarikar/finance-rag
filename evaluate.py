@@ -1,7 +1,7 @@
 import os
 import json
 from langchain_core.prompts import PromptTemplate
-from ap import setup_rag, llm_rerank, dynamic_retrieve
+from ap import setup_rag, cohere_rerank, dynamic_retrieve
 
 def main():
     print("==================================================")
@@ -11,19 +11,19 @@ def main():
     # 1. Initialize RAG components
     components, llm = setup_rag()
     
-    # 2. Test Questions with Ground Truth Answers
+    # 2. Test Questions with Ground Truth Answers for Quantitative Finance
     test_cases = [
         {
-            "question": "Have any companies announced mergers or acquisitions recently?",
-            "ground_truth": "Various companies have entered into definitive agreements to acquire other firms in all-cash transactions to expand market share."
+            "question": "What are the most common models used for predicting Bid-Ask spread conditional distributions?",
+            "ground_truth": "The methodology introduces a Hierarchical Correlation Reconstruction (HCR) model for predicting conditional probability distributions of bid-ask spreads, while mentioning simpler predictors like AMI and HLR."
         },
         {
-            "question": "What is the latest news on Apple's Q3 2023 financials?",
-            "ground_truth": "Apple announced Q3 2023 revenue of $81.8 billion, driven by an all-time revenue record in Services and strength in emerging markets."
+            "question": "How does the Kyle Single Period model handle insider trading?",
+            "ground_truth": "In Kyle's single period model, an insider attempts to maximize their profit by strategically trading on private information while a market maker sets prices to ensure zero expected profit."
         },
         {
-            "question": "What happened to the escaped prisoner?",
-            "ground_truth": "The escaped prisoner, Feigley, escaped from a Pennsylvania prison in 1976 and was recaptured."
+            "question": "What is the Heston model used for?",
+            "ground_truth": "The Heston model is a mathematical model used in quantitative finance to price options, specifically by assuming that volatility is stochastic rather than constant."
         }
     ]
     
@@ -69,7 +69,7 @@ def main():
         docs = dynamic_retrieve(q, components, llm)
         
         # Run LLM Reranking (Filtering)
-        docs = llm_rerank(docs, q, llm)
+        docs = cohere_rerank(docs, q)
         
         if not docs:
             print("  [X] No relevant documents found.")

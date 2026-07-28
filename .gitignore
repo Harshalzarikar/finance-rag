@@ -6,3 +6,4 @@ doc_store_local/
 documents/
 bm25_index.pkl
 *.log
+real_pdfs/

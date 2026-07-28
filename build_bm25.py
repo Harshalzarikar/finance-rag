@@ -1,19 +1,18 @@
 import os
 import pickle
-from langchain_community.document_loaders import DirectoryLoader, TextLoader
+from langchain_community.document_loaders import DirectoryLoader, PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.retrievers import BM25Retriever
 
-DOCS_DIR = "./documents"
+DOCS_DIR = "./real_pdfs"
 BM25_FILE = "bm25_index.pkl"
 
 def main():
     print(f"Loading documents from {DOCS_DIR}...")
     loader = DirectoryLoader(
         DOCS_DIR,
-        glob="**/*.txt",
-        loader_cls=TextLoader,
-        loader_kwargs={"encoding": "utf-8"},
+        glob="**/*.pdf",
+        loader_cls=PyMuPDFLoader,
         use_multithreading=True,
         show_progress=True,
     )

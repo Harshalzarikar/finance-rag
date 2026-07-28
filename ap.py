@@ -124,22 +124,9 @@ def compress_query(query, llm):
         return query
 
 def dynamic_retrieve(query, components, llm):
-    company = extract_company_filter(query, llm)
+    # For ArXiv PDFs, we do not have strict 'company' metadata, so we search the entire database.
     search_kwargs = {}
-    if company:
-        from qdrant_client.http import models as rest
-        search_kwargs = {
-            "filter": rest.Filter(
-                must=[
-                    rest.FieldCondition(
-                        key="metadata.company",
-                        match=rest.MatchText(text=company),
-                    )
-                ]
-            )
-        }
-        print(f"  [Router] Autonomously applying Qdrant filter for: {company}")
-        
+    
     pr = ParentDocumentRetriever(
         vectorstore=components["vectorstore"],
         docstore=components["store"],
@@ -159,50 +146,44 @@ def dynamic_retrieve(query, components, llm):
     
     return final_retriever.invoke(search_query)
 
-def llm_rerank(docs, query, fallback_llm):
-    """Uses Groq (Llama3) as a lightning fast cross-encoder to rerank/filter documents in ONE API call."""
+def cohere_rerank(docs, query):
+    """Uses the official Cohere Rerank API to mathematically score and filter documents."""
     if not docs: return []
     
     import os
-    try:
-        from langchain_groq import ChatGroq
-        eval_llm = ChatGroq(model="llama-3.1-8b-instant", groq_api_key=os.environ.get("GROQ_API_KEY"))
-    except Exception as e:
-        print(f"  [Reranker Warning] Groq not configured properly, falling back to Gemini... ({e})")
-        eval_llm = fallback_llm
-        
-    # Combine all docs into a numbered list
-    docs_text = ""
-    for i, doc in enumerate(docs):
-        docs_text += f"\n[Document ID: {i}]\n{doc.page_content}\n"
+    import cohere
     
-    rerank_prompt = PromptTemplate.from_template(
-        "You are a strict relevance judge.\n\n"
-        "Query: {query}\n\n"
-        "Documents:\n{documents}\n\n"
-        "Which of the above documents contain information that helps answer the query?\n"
-        "Return ONLY a comma-separated list of the relevant Document IDs (e.g. 0, 2, 3). If NONE of them are relevant, return 'NONE'."
-    )
+    # Load environment variables if not already loaded
+    from dotenv import load_dotenv
+    load_dotenv()
     
-    print(f"  [Reranker] Evaluating {len(docs)} documents in a single fast call...")
+    api_key = os.environ.get("COHERE_API_KEY")
+    if not api_key:
+        print("  [Cohere Error] COHERE_API_KEY not found in environment.")
+        return docs
+    
     try:
-        prompt_text = rerank_prompt.format(query=query, documents=docs_text)
-        response = eval_llm.invoke(prompt_text)
-        result = response.content.strip()
+        co = cohere.Client(api_key)
+        print(f"  [Cohere Reranker] Evaluating {len(docs)} documents mathematically...")
         
-        if "none" in result.lower():
-            print("  [Reranker] Kept 0 highly relevant documents.")
-            return []
-            
-        # Parse the IDs from the response
-        import re
-        kept_ids = [int(s) for s in re.findall(r'\d+', result)]
-        reranked = [docs[i] for i in kept_ids if i < len(docs)]
+        # Extract text from Langchain Documents
+        doc_texts = [doc.page_content for doc in docs]
         
-        print(f"  [Reranker] Kept {len(reranked)} highly relevant documents.")
-        return reranked
+        # Call Cohere Rerank API
+        response = co.rerank(
+            model="rerank-english-v3.0",
+            query=query,
+            documents=doc_texts,
+            top_n=2
+        )
+        
+        # Reconstruct Document objects
+        reranked_docs = [docs[res.index] for res in response.results]
+        
+        print(f"  [Cohere Reranker] Kept {len(reranked_docs)} highly relevant documents.")
+        return reranked_docs
     except Exception as e:
-        print(f"  [Reranker Error] {e} - Falling back to keeping all documents.")
+        print(f"  [Cohere Error] {e} - Falling back to keeping all documents.")
         return docs
 
 def main():
@@ -237,7 +218,7 @@ def main():
             continue
             
         # --- NEW RERANKING STEP ---
-        docs = llm_rerank(docs, query, llm)
+        docs = cohere_rerank(docs, query)
         
         if not docs:
             print("  [X] The AI determined that none of the retrieved documents answer the question. Please try rephrasing.")
