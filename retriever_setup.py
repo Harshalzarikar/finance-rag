@@ -12,8 +12,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 from tqdm import tqdm
 
-# Import the shared PickleFileStore from our main backend module
-from core import PickleFileStore
+from storage import PickleFileStore
 
 # ---------------------------------------------------------------------------
 # Setup Logging & Environment
@@ -45,22 +44,29 @@ def main() -> None:
         DOCS_DIR,
         glob="**/*.pdf",
         loader_cls=PyMuPDFLoader,
-        use_multithreading=True,
     )
-    # We will use .lazy_load() later to stream documents one-by-one!
 
-    logger.info("Initializing Local HuggingFace Embeddings (all-MiniLM-L6-v2)...")
+
+    logger.info("Initializing Local HuggingFace Embeddings...")
     embeddings = HuggingFaceEmbeddings(
         model_name="all-MiniLM-L6-v2",
         model_kwargs={"device": "cpu"},
         encode_kwargs={"normalize_embeddings": True},
     )
-    logger.info("Model loaded successfully!")
 
     logger.info("Initializing Qdrant Vector Store...")
     client = QdrantClient(path=QDRANT_DB_DIR)
 
-    if not client.collection_exists("parent_document_store"):
+    if client.collection_exists("parent_document_store"):
+        col_info = client.get_collection("parent_document_store")
+        if col_info.config.params.vectors.size != EMBEDDING_DIM:
+            logger.warning("Dimension mismatch detected. Recreating Qdrant collection...")
+            client.delete_collection("parent_document_store")
+            client.create_collection(
+                collection_name="parent_document_store",
+                vectors_config=VectorParams(size=EMBEDDING_DIM, distance=Distance.COSINE),
+            )
+    else:
         logger.info("Creating new Qdrant collection...")
         client.create_collection(
             collection_name="parent_document_store",
@@ -89,27 +95,21 @@ def main() -> None:
     )
 
     # -----------------------------------------------------------------------
-    # Index documents in TRUE lazy batches to prevent RAM spikes!
+    # Index documents in lazy batches
     # -----------------------------------------------------------------------
     BATCH_SIZE = 20
-    logger.info(f"Lazily streaming and indexing documents in batches of {BATCH_SIZE}...")
+    logger.info(f"Streaming and indexing documents in batches of {BATCH_SIZE}...")
     start_time = time.time()
 
     batch = []
 
-    # lazy_load() yields one document at a time directly from the hard drive,
-    # preventing massive RAM spikes!
     for doc in tqdm(loader.lazy_load(), desc="Streaming & Indexing PDFs"):
-        # Add metadata on the fly
-        first_line = doc.page_content.split('\n')[0].strip()
-        doc.metadata["company"] = first_line[:50] if first_line else "ArXiv Paper"
-
         batch.append(doc)
 
         # When batch is full, process it and clear it from RAM
         if len(batch) >= BATCH_SIZE:
             retriever.add_documents(batch)
-            batch.clear()  # FREES RAM!
+            batch.clear()
 
     # Process any remaining documents in the final partial batch
     if batch:
@@ -118,22 +118,6 @@ def main() -> None:
 
     total_time = time.time() - start_time
     logger.info(f"Indexing Complete! Total time: {total_time:.1f} seconds ({total_time / 60:.2f} minutes)")
-
-    # -----------------------------------------------------------------------
-    # Test Query
-    # -----------------------------------------------------------------------
-    logger.info("Running a test query...")
-    test_query = "What is the main topic of the first document?"
-    retrieved_docs = retriever.invoke(test_query)
-
-    logger.info(f"Retrieved {len(retrieved_docs)} parent documents for the query: '{test_query}'")
-    if retrieved_docs:
-        logger.info("Snippet of the first retrieved parent document:")
-        logger.info("-" * 50)
-        logger.info(retrieved_docs[0].page_content[:500] + "...")
-        logger.info("-" * 50)
-    else:
-        logger.warning("No documents retrieved.")
 
 
 if __name__ == "__main__":
