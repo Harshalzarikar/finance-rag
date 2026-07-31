@@ -14,7 +14,6 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_core.stores import BaseStore
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_qdrant import QdrantVectorStore
@@ -32,9 +31,9 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-if not os.environ.get("GOOGLE_API_KEY"):
-    logger.error("GOOGLE_API_KEY not found in .env")
-    raise ValueError("GOOGLE_API_KEY environment variable is missing.")
+if not os.environ.get("GROQ_API_KEY"):
+    logger.error("GROQ_API_KEY not found in .env")
+    raise ValueError("GROQ_API_KEY environment variable is missing.")
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -75,10 +74,7 @@ def setup_rag() -> Tuple[Dict[str, Any], BaseChatModel]:
     parent_splitter, child_splitter = get_splitters()
 
     logger.info("Initializing AI Models...")
-    if os.environ.get("GROQ_API_KEY"):
-        llm: BaseChatModel = ChatGroq(model="llama-3.3-70b-versatile")
-    else:
-        llm = ChatGoogleGenerativeAI(model="gemini-flash-latest")
+    llm: BaseChatModel = ChatGroq(model="llama-3.3-70b-versatile")
 
     logger.info("Loading BM25 Keyword Search Index...")
     try:
