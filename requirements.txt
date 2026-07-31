@@ -16,3 +16,4 @@ ragas==0.4.3
 rank-bm25==0.2.2
 cohere==5.21.1
 groq==0.37.1
+gradio==4.36.1
