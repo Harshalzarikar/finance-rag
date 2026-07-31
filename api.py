@@ -4,8 +4,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.prompts import PromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel
 
 # Import RAG components from our backend
@@ -25,12 +26,25 @@ app = FastAPI(
     description="Production REST API for querying the Agentic RAG architecture.",
 )
 
-prompt_template = PromptTemplate.from_template(
-    "You are an AI assistant answering questions based on the provided context.\n\n"
-    "Context:\n{context}\n\n"
-    "Question: {question}\n\n"
-    "Answer the question using ONLY the provided context. If the answer is not in the context, say 'I don't know'."
+# Add CORS middleware to allow React frontend to communicate with this backend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins (update to Vercel URL in prod)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
+
+prompt_template = ChatPromptTemplate.from_messages([
+    ("system", (
+        "You are a highly intelligent, professional AI assistant specializing in Quantitative Finance and Mathematical Physics.\n\n"
+        "Your rules:\n"
+        "1. If the user is just saying a conversational greeting (like 'hi', 'hello', 'how are you'), respond politely and ask how you can help them with their research. Ignore the math context completely.\n"
+        "2. For all other queries, answer the question using ONLY the provided context.\n"
+        "3. If the answer is not contained within the context, you MUST say 'I don't know based on the provided documents.' Do not invent math problems or hallucinate dialogues."
+    )),
+    ("user", "Context:\n{context}\n\nQuestion: {question}")
+])
 
 
 # Pydantic models for request and response validation
@@ -78,6 +92,21 @@ async def chat_endpoint(
 
     logger.info(f"Received API query: '{query}'")
 
+    # 0. Short-circuit greetings BEFORE they hit the retrieval pipeline.
+    #    Without this, "hi" gets searched in the vector DB, matches math
+    #    subscripts like h_i, and the LLM hallucinates on garbage context.
+    GREETINGS = {"hi", "hello", "hey", "hii", "hiii", "sup", "yo", "hola",
+                 "good morning", "good afternoon", "good evening",
+                 "how are you", "what's up", "whats up"}
+    if query.strip().lower().rstrip("!?.") in GREETINGS:
+        logger.info("Detected greeting — skipping retrieval pipeline.")
+        return ChatResponse(
+            answer="Hello! I'm your Quantitative Finance AI assistant. "
+                   "Ask me anything about stochastic volatility, options pricing, "
+                   "portfolio optimization, risk models, or any topic from the ArXiv research papers.",
+            sources=[],
+        )
+
     # 1. Agentic Retrieval
     try:
         docs = dynamic_retrieve(query, components, llm)
@@ -103,11 +132,11 @@ async def chat_endpoint(
         [f"[Source: {doc.metadata.get('source', 'Unknown Document')}]\n{doc.page_content}" for doc in docs]
     )
 
-    formatted_prompt = prompt_template.format(context=context_text, question=query)
+    messages = prompt_template.format_messages(context=context_text, question=query)
 
     # 4. LLM Generation
     try:
-        response = llm.invoke(formatted_prompt)
+        response = llm.invoke(messages)
     except Exception as e:
         logger.error(f"LLM Generation failed: {e}")
         raise HTTPException(status_code=500, detail="LLM generation failed.")
