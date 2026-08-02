@@ -1,4 +1,3 @@
-
 # 📈 Quantitative Finance RAG
 
 > A production-grade, locally-validated Retrieval-Augmented Generation (RAG) system built over 1,190 ArXiv quantitative finance research papers (~31,000 pages, ~20M tokens).
@@ -18,20 +17,6 @@
 | **Frontend** | React + Vite |
 | **Evaluation** | RAGAS Framework (LLM-as-a-Judge) |
 | **PDF Extraction** | PyMuPDF (C++ bindings, fastest available) |
-
----
-
-## 📊 RAGAS Evaluation Results (LLM-as-a-Judge)
-
-Evaluated using the **RAGAS Framework** against a constrained Q&A test set over quantitative finance documents:
-
-| Metric | Score | Description |
-| :--- | :---: | :--- |
-| **Context Precision** | **1.0** | Retrieved chunks are relevant to the query |
-| **Context Recall** | **1.0** | All necessary context is retrieved |
-| **Faithfulness** | **1.0** | Answers are grounded in source documents (no hallucination) |
-
-> Results exported to [`ragas_evaluation_results.csv`](./ragas_evaluation_results.csv). Scores reflect performance on the constrained test set — see [`SYSTEM_ARCHITECTURE.md`](./SYSTEM_ARCHITECTURE.md) for full evaluation methodology.
 
 ---
 
