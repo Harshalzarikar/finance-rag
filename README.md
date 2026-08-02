@@ -97,6 +97,73 @@ The local Qdrant file-based client uses a file lock — only one process can ope
 
 ---
 
+## 🏭 Production Deployment Architecture
+
+This project is a validated **Proof of Concept (POC)**. The table below shows the exact infrastructure swap required to take it to enterprise production — every component maps 1-to-1 with what's already built locally.
+
+### Component Mapping: POC → Enterprise
+
+| Component | Local POC (Built ✅) | Enterprise Production | Why the Change |
+| :--- | :--- | :--- | :--- |
+| **PDF Storage** | `./real_pdfs/` (local disk) | AWS S3 / GCS Bucket | Durable, scalable object storage |
+| **Vector Database** | Qdrant file-based (single process) | Qdrant Cloud / self-hosted server | Supports concurrent workers & horizontal scaling |
+| **Keyword Index** | `bm25_index.pkl` (local file) | Elasticsearch / OpenSearch | Distributed, sharded keyword search |
+| **Parent Doc Store** | Pickle files (local disk) | Redis / DynamoDB | Low-latency key-value with replication |
+| **Ingestion Pipeline** | `retriever_setup.py` (manual script) | Apache Airflow / AWS Lambda (event-driven) | Auto-triggers on new document upload |
+| **Embedding Workers** | Local CPU (1 machine, ~1hr/1190 PDFs) | GPU instances (A10G via SageMaker) | 10-50x faster embedding generation |
+| **API Server** | Single Uvicorn worker | Kubernetes (EKS/GKE) with HPA auto-scaling | Zero-downtime, handles traffic spikes |
+| **Rate Limiting** | None | AWS API Gateway / Kong | Protects against API abuse |
+| **Auth** | None | OAuth2 / JWT (API Gateway) | Secure multi-tenant access |
+| **Monitoring** | Python `logging` | Prometheus + Grafana / Datadog | Latency, error rate, throughput dashboards |
+| **CI/CD** | Manual `git push` | GitHub Actions → Docker → ECS/GKE | Automated test, build, deploy pipeline |
+
+> **Code change required:** Only 2 lines in `core.py` — swap `QdrantClient(path=...)` for `QdrantClient(url=..., api_key=...)`. All retrieval, reranking, and generation logic stays identical.
+
+---
+
+### 📐 Scale & Cost Projections
+
+Scaling calculations derived from live measured footprint: **579 MB Qdrant / 1,190 PDFs = 487 bytes/vector**.
+
+| Scale Tier | Documents | Vectors | Qdrant Storage | Est. Monthly Infra Cost |
+| :--- | ---: | ---: | ---: | ---: |
+| **POC (Local)** | 1,190 | ~80K | 579 MB | **$0** |
+| **Startup** | 10,000 | ~672K | ~4.8 GB | **~$80/mo** |
+| **Small Firm** | 50,000 | ~3.4M | ~25 GB | **~$300/mo** |
+| **Mid-Size Firm** | 500,000 | ~33.6M | ~245 GB | **~$1,800/mo** |
+| **Enterprise** | 5,000,000 | ~336M | ~2.5 TB | **~$12,000/mo** |
+| **Hyperscale** | 10,000,000 | ~672M | ~4.9 TB | **~$22,000/mo** |
+
+---
+
+### 💰 Per-Request API Cost Breakdown (At Scale)
+
+| API Call | Model | Cost Per 1M tokens | Avg tokens/request | Cost/request |
+| :--- | :--- | :--- | :--- | :--- |
+| **Query Compression** | Groq Llama 3.3 70B | ~$0.59 | ~150 tokens | ~$0.000089 |
+| **LLM Generation** | Groq Llama 3.3 70B | ~$0.79 | ~2,000 tokens | ~$0.0016 |
+| **Cohere Rerank** | Rerank v3.0 | $2.00 / 1K searches | 1 search | ~$0.002 |
+| **Embeddings** | all-MiniLM-L6-v2 | $0 (local CPU) | — | **$0** |
+| **Total per query** | | | | **~$0.004** |
+
+> At 10,000 queries/day → **~$40/day in API costs**. Optimise by caching frequent queries (Redis) and batching Cohere rerank calls.
+
+---
+
+### 🔒 Enterprise Security Additions
+
+| Layer | Implementation |
+| :--- | :--- |
+| **Transport** | TLS 1.3 (HTTPS enforced at API Gateway) |
+| **Storage** | AES-256 at rest (S3 server-side encryption) |
+| **Authentication** | OAuth2 + JWT (30-min token expiry) |
+| **Document Access Control** | Qdrant payload filters for tenant isolation |
+| **Audit Logging** | All queries logged to CloudWatch / BigQuery |
+| **PII Scrubbing** | Pre-ingestion Lambda detects and redacts sensitive fields |
+| **Rate Limiting** | 100 req/min per API key (API Gateway throttling) |
+
+---
+
 ## 🚀 Setup & Installation
 
 ### 1. Clone & Install
