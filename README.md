@@ -121,7 +121,17 @@ Scaling calculations derived from live measured footprint: **579 MB Qdrant / 1,1
 
 ---
 
-### 💰 Per-Request API Cost Breakdown (At Scale)
+### Per-Request API Cost Breakdown (At Scale)
+
+**Current POC cost = $0.** All APIs used in this project have free tiers that cover development and demo usage:
+
+| API | Free Tier Limit | Paid tier kicks in when... |
+| :--- | :--- | :--- |
+| **Groq** | 6,000 req/day, 500K tokens/day | > 6K queries/day or need SLA |
+| **Cohere Rerank** | 1,000 calls/month | > 1K reranks/month |
+| **HuggingFace Embeddings** | Free forever (runs locally) | Never — stays on CPU |
+
+Once free limits are exceeded in production:
 
 | API Call | Model | Cost Per 1M tokens | Avg tokens/request | Cost/request |
 | :--- | :--- | :--- | :--- | :--- |
@@ -131,7 +141,7 @@ Scaling calculations derived from live measured footprint: **579 MB Qdrant / 1,1
 | **Embeddings** | all-MiniLM-L6-v2 | $0 (local CPU) | — | **$0** |
 | **Total per query** | | | | **~$0.004** |
 
-> At 10,000 queries/day → **~$40/day in API costs**. Optimise by caching frequent queries (Redis) and batching Cohere rerank calls.
+> At 10,000 queries/day → **~$40/day in API costs**. Reduce by caching frequent queries (Redis) and batching Cohere rerank calls.
 
 ---
 
