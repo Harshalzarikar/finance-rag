@@ -1,3 +1,13 @@
+---
+title: Quantitative Finance RAG API
+emoji: 📈
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Quantitative Finance RAG
 
 A local Retrieval-Augmented Generation (RAG) pipeline built to ingest, vectorize, and reason over academic research papers in Quantitative Finance.
