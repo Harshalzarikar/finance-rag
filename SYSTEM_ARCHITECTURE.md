@@ -1,6 +1,153 @@
 # Quantitative Finance RAG: System Architecture & Scale
 
-This document outlines the exact technical specifications, scale, and architectural decisions behind this Retrieval-Augmented Generation (RAG) system. It serves as a technical deep dive for engineers and reviewers.
+This document outlines the technical specifications of the local Proof-of-Concept (POC) and the proposed Enterprise-Grade Architecture for scaling to production.
+
+---
+
+## Part 1 — Local Proof of Concept (Built & Validated ✅)
+
+### 📊 Scale & Metrics
+
+| Metric | Value |
+| :--- | :--- |
+| **PDFs Ingested** | 1,190 Quantitative Finance papers (ArXiv) |
+| **Total Pages** | ~31,000 pages of dense mathematical text |
+| **Estimated Tokens** | ~20 Million tokens in total database |
+| **Vector Embeddings** | ~80,000 child chunks (384-dim, all-MiniLM-L6-v2) |
+| **Peak RAM (Ingestion)** | < 250 MB (via lazy_load() batching) |
+
+### 🧮 Local Hardware Footprint
+
+| Component | Size | Description |
+| :--- | :--- | :--- |
+| **Raw PDFs (Input)** | `1.56 GB` | 1,190 ArXiv papers |
+| **Qdrant Vector DB** | `579 MB` | HNSW semantic search index |
+| **BM25 Sparse Index** | `164 MB` | Serialized keyword matching dictionary |
+| **Parent Doc Store** | `104 MB` | Pickled parent chunks for LLM context |
+| **Total Index Size** | **~847 MB** | Full retrieval system on disk |
+
+### 🧩 Chunking Strategy
+
+The system uses **Parent-Child Document Splitting** (`ParentDocumentRetriever`) to prevent the "Lost in the Middle" problem in dense mathematical text.
+
+| Chunk Type | Size | Purpose |
+| :--- | :--- | :--- |
+| **Child Chunks** | 1,000 chars / ~250 tokens | Embedded into Qdrant — searched semantically |
+| **Parent Chunks** | 4,000 chars / ~1,000 tokens | Stored in doc store — fed to LLM for full context |
+
+### ⚙️ Retrieval Pipeline
+
+```
+User Query
+    │
+    ▼
+Query Compressor (LLM) ──── compresses long queries → concise search terms
+    │
+    ▼
+Ensemble Retriever
+    ├── Qdrant Vector Search (weight: 0.6) ── semantic meaning
+    └── BM25 Keyword Search  (weight: 0.4) ── exact term matching
+    │
+    ▼ Reciprocal Rank Fusion (RRF)
+    │
+    ▼
+Cohere Rerank v3.0 ──── cross-encoder scores all candidates → keeps top 2
+    │
+    ▼
+Groq Llama 3.3 70B ──── generates final answer from top context
+    │
+    ▼
+FastAPI Response (answer + source citations)
+```
+
+### 📈 RAGAS Evaluation Results (LLM-as-a-Judge)
+
+Evaluated using the **Ragas Framework** against a constrained Q&A test set:
+
+| Metric | Score |
+| :--- | :--- |
+| **Context Precision** | 1.0 |
+| **Context Recall** | 1.0 |
+| **Faithfulness** | 1.0 |
+
+> Note: These scores are validated on a constrained test set. They serve as a baseline sanity check confirming the retrieval pipeline correctly grounds answers in source documents.
+
+---
+
+## Part 2 — Enterprise Production Architecture (Design Proposal 📄)
+
+> The local POC proves the architecture is correct. Scaling it to enterprise requires replacing local file storage and single-process execution with managed cloud services. No fundamental logic changes — only infrastructure swaps.
+
+### 🏗️ Architecture Comparison
+
+| Component | Local POC (Built) | Enterprise Production |
+| :--- | :--- | :--- |
+| **PDF Storage** | Local `./real_pdfs` folder | AWS S3 / GCS Bucket |
+| **Vector Database** | Local Qdrant (file-based) | Qdrant Cloud (managed cluster) or Pinecone |
+| **Ingestion Pipeline** | Single Python script | Apache Airflow DAG / AWS Lambda event-driven |
+| **Embedding Workers** | Local CPU (1 machine) | GPU instances (A10G/T4) via SageMaker or GCP |
+| **BM25 Index** | Local `.pkl` file | Elasticsearch / OpenSearch cluster |
+| **Doc Store** | Local pickle files | Redis / DynamoDB key-value store |
+| **API Server** | Single Uvicorn process | Kubernetes (EKS/GKE) with auto-scaling |
+| **Rate Limiting** | None (POC) | API Gateway (AWS) / Kong |
+| **Monitoring** | Python logging | Datadog / Prometheus + Grafana |
+| **CI/CD** | Manual `git push` | GitHub Actions → Docker → ECS/GKE |
+
+### 📐 Enterprise Data Flow
+
+```
+                    ┌─────────────────────────────────┐
+                    │         Data Ingestion           │
+                    │                                  │
+  New PDF Upload    │  S3 Bucket → SQS Queue           │
+  ───────────────▶  │      → Lambda Workers (GPU)      │
+                    │      → Qdrant Cloud (vectors)    │
+                    │      → DynamoDB (parent chunks)  │
+                    │      → Elasticsearch (BM25)      │
+                    └─────────────────────────────────┘
+
+                    ┌─────────────────────────────────┐
+                    │        Query Serving             │
+                    │                                  │
+  User Request      │  API Gateway (rate limit, auth)  │
+  ───────────────▶  │      → Kubernetes Pod (FastAPI)  │
+                    │      → Qdrant Cloud + ES cluster │
+                    │      → Cohere Rerank API         │
+                    │      → Groq / Azure OpenAI       │
+                    │      ← Response + Citations      │
+                    └─────────────────────────────────┘
+```
+
+### 📊 Enterprise Scale Projections
+
+| Scale | PDFs | Vectors | Qdrant Storage | Est. Monthly Cost |
+| :--- | :--- | :--- | :--- | :--- |
+| **POC (Local)** | 1,190 | ~80K | 579 MB | $0 |
+| **Small Team** | 50,000 | ~3.4M | ~25 GB | ~$200/mo |
+| **Mid-Size Firm** | 500,000 | ~34M | ~245 GB | ~$1,500/mo |
+| **Enterprise** | 10,000,000 | ~680M | ~4.9 TB | ~$15,000/mo |
+
+*(Linear scaling based on measured 487 bytes/vector for all-MiniLM-L6-v2 with HNSW metadata.)*
+
+### 🔒 Enterprise Security Additions
+
+- **Authentication:** OAuth2 / JWT token validation at API Gateway
+- **Encryption:** TLS in transit, AES-256 at rest (S3, Qdrant Cloud)
+- **Access Control:** Role-based document-level filtering in Qdrant payloads
+- **Audit Logging:** All queries logged to CloudWatch / BigQuery for compliance
+- **PII Scrubbing:** Pre-ingestion pipeline to detect and redact sensitive data
+
+---
+
+## Summary
+
+This project demonstrates the full MLOps lifecycle:
+
+1. **Data Engineering** — batch PDF ingestion with memory-safe streaming
+2. **ML Engineering** — hybrid retrieval (semantic + keyword) with cross-encoder reranking
+3. **Backend Engineering** — production FastAPI with Pydantic validation and dependency injection
+4. **Evaluation** — automated LLM-as-a-Judge scoring with RAGAS
+5. **Architecture Design** — documented path from local POC to enterprise cloud deployment
 
 ## 📊 1. The Scale & Metrics
 
