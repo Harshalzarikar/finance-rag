@@ -47,7 +47,7 @@ FastAPI Response                → answer + source citations (PDF filename + ex
 
 ### Key Design Decisions
 
-1. **Parent-Child Chunking** — Child chunks (250 tokens) are embedded for precise semantic search. On retrieval, they map back to their Parent chunk (1,000 tokens) fed to the LLM — preventing the "Lost in the Middle" problem in dense mathematical text.
+1. **Parent-Child Chunking** — Child chunks (700 chars / ~175 tokens) are embedded for precise semantic search. Size is capped at 700 chars specifically to stay within `all-MiniLM-L6-v2`'s hard 256-token context window — dense LaTeX can tokenize at 0.35 tokens/char. On retrieval, child chunks map back to their Parent chunk (4,000 chars / ~1,000 tokens) fed to the LLM for full context.
 
 2. **Hybrid BM25 + Qdrant Retrieval** — Pure semantic search fails on exact finance acronyms (e.g., `LTRO`, `e-MID`, `HJM`). BM25 covers exact keyword matching; Qdrant covers conceptual similarity. Both are fused via RRF.
 
