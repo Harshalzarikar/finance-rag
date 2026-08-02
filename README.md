@@ -164,6 +164,62 @@ Scaling calculations derived from live measured footprint: **579 MB Qdrant / 1,1
 
 ---
 
+## 10 Million Document Scale Design
+
+Numbers derived from measured POC footprint (579 MB Qdrant / 1,190 PDFs = 487 bytes/vector).
+
+### Storage at 10M PDFs
+
+| Component | Size | Service |
+| :--- | :--- | :--- |
+| Raw PDFs | ~13 TB | AWS S3 |
+| Qdrant Vector DB | ~4.9 TB | Qdrant Cloud (10 shards, 2 replicas each) |
+| BM25 Keyword Index | ~1.4 TB | Elasticsearch (3-node cluster) |
+| Parent Doc Store | ~876 GB | DynamoDB |
+| Vectors count | ~672M | 384-dim, all-MiniLM-L6-v2 |
+
+### Ingestion at 10M PDFs
+
+Single CPU script takes ~350 days. Distributed GPU pipeline:
+
+| Step | Tool | Time |
+| :--- | :--- | :--- |
+| PDF upload trigger | S3 Event → SQS queue | instant |
+| Text extraction | PyMuPDF workers (ECS pods) | parallel |
+| Embedding generation | 100 × A10G GPU pods, batch=512 | ~84 hours |
+| Vector upsert | Qdrant bulk API | included above |
+| Parent chunk storage | DynamoDB bulk write | included above |
+
+### Monthly Running Cost at 10M PDFs
+
+| Component | Service | Cost/mo |
+| :--- | :--- | :--- |
+| PDF Storage | AWS S3 (13 TB) | ~$300 |
+| Vector DB | Qdrant Cloud (4.9 TB) | ~$8,000 |
+| Keyword Index | Elasticsearch (3 nodes) | ~$2,500 |
+| Parent Doc Store | DynamoDB (876 GB) | ~$220 |
+| API Server | Kubernetes EKS (5 pods) | ~$800 |
+| LLM + Reranker APIs | Groq + Cohere (10K queries/day) | ~$1,200 |
+| Cache | Redis ElastiCache | ~$120 |
+| Monitoring | Datadog | ~$300 |
+| **Total** | | **~$13,440/mo** |
+
+### What changes in the code
+
+Only 2 lines change in `core.py`. Everything else — chunking, retrieval logic, reranking, generation — stays identical.
+
+```python
+# POC (local file)
+client = QdrantClient(path="./qdrant_db_local")
+
+# 10M scale (server)
+client = QdrantClient(url=os.environ["QDRANT_URL"], api_key=os.environ["QDRANT_API_KEY"])
+```
+
+BM25 moves from a `.pkl` file to Elasticsearch. Parent doc store moves from pickle files to DynamoDB. Query logic is untouched.
+
+---
+
 ## 🚀 Setup & Installation
 
 ### 1. Clone & Install
