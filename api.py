@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 # Import RAG components from our backend
 from core import cohere_rerank, dynamic_retrieve, setup_rag
+from semantic_cache import semantic_cache
 
 load_dotenv()
 
@@ -60,6 +61,7 @@ class SourceDoc(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     sources: List[SourceDoc]
+    cached: bool = False          # True when response came from semantic cache
 
 
 # Global cache for components to avoid re-initializing on every request
@@ -107,34 +109,43 @@ async def chat_endpoint(
             sources=[],
         )
 
-    # 1. Agentic Retrieval
+    # 1. Semantic Cache Check — skip retrieval + LLM if a similar query was cached.
+    cached_entry = semantic_cache.get(query)
+    if cached_entry is not None:
+        return ChatResponse(
+            answer=cached_entry.answer,
+            sources=cached_entry.sources,
+            cached=True,
+        )
+    # 2. Agentic Retrieval
     try:
         docs = dynamic_retrieve(query, components, llm)
     except Exception as e:
         logger.error(f"Retrieval failed: {e}")
         raise HTTPException(status_code=500, detail="Document retrieval failed.")
 
-    # 2. Mathematical Reranking
+    # 3. Mathematical Reranking
     try:
         docs = cohere_rerank(docs, query)
     except Exception as e:
         logger.error(f"Reranking failed: {e}")
         raise HTTPException(status_code=500, detail="Document reranking failed.")
 
+    # 4. Short-circuit — no relevant docs found
     if not docs:
         return ChatResponse(
             answer="I could not find any relevant information in the mathematical PDFs to answer this question.",
             sources=[],
         )
 
-    # 3. Combine Context
+    # 5. Combine Context
     context_text = "\n\n---\n\n".join(
         [f"[Source: {doc.metadata.get('source', 'Unknown Document')}]\n{doc.page_content}" for doc in docs]
     )
 
     messages = prompt_template.format_messages(context=context_text, question=query)
 
-    # 4. LLM Generation
+    # 6. LLM Generation
     try:
         response = llm.invoke(messages)
     except Exception as e:
@@ -148,10 +159,26 @@ async def chat_endpoint(
     else:
         answer = str(content).strip()
 
-    # 5. Format sources
+    # 7. Format sources
     sources = [
         SourceDoc(source=doc.metadata.get("source", "Unknown Document"), content=doc.page_content)
         for doc in docs
     ]
 
-    return ChatResponse(answer=answer, sources=sources)
+    # 8. Store in semantic cache for future similar queries
+    semantic_cache.set(query, answer, sources)
+
+    return ChatResponse(answer=answer, sources=sources, cached=False)
+
+
+@app.get("/cache/stats")
+async def cache_stats() -> dict:
+    """Returns semantic cache hit/miss statistics."""
+    return semantic_cache.stats()
+
+
+@app.get("/cache/clear")
+async def cache_clear() -> dict:
+    """Clears all semantic cache entries."""
+    semantic_cache.clear()
+    return {"status": "cache cleared"}
