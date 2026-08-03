@@ -23,9 +23,9 @@ from sentence_transformers import SentenceTransformer
 logger = logging.getLogger(__name__)
 
 # Similarity threshold — queries more similar than this are treated as duplicates.
-# 0.92 is tight: "Black-Scholes model?" and "Explain Black-Scholes" will hit the
-# cache; "Black-Scholes" and "Heston model" will not.
-SIMILARITY_THRESHOLD = 0.92
+# 0.88 captures varied phrasings: "Black-Scholes model?" and "Explain Black-Scholes"
+# will hit the cache; entirely different topics will not.
+SIMILARITY_THRESHOLD = 0.88
 
 # Maximum number of entries to keep in memory.
 # Oldest entries are evicted when the cache is full (LRU-style).
