@@ -1,22 +1,71 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Spectral:wght@400;500;600&display=swap');
+
+/* ==========================================================================
+   Design tokens
+
+   Direction: quiet editorial. Warm paper, deep warm ink, gold used as a precise
+   accent rather than a coat of paint. Built in OKLCH so equal lightness steps
+   read as equal brightness.
+
+   Two golds exist because one cannot do both jobs on a white ground:
+     --gold     a light gold for FILLS, always with dark ink on top
+     --bronze   a deep gold for TEXT and rules, dark enough to be readable
+   Gold text on white measures ~2:1 and is never used.
+   ========================================================================== */
 
 :root {
-  --bg-color: #0b0f19;
-  --panel-bg: rgba(20, 27, 45, 0.6);
-  --glass-border: rgba(255, 255, 255, 0.08);
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --accent-blue: #3b82f6;
-  --accent-purple: #8b5cf6;
-  --gradient-primary: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
-  
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  color-scheme: dark;
-  background-color: var(--bg-color);
-  color: var(--text-primary);
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+  /* Surfaces — never pure white or pure grey; every neutral carries a trace
+     of the gold hue so the paper feels authored rather than empty. */
+  --canvas: oklch(0.985 0.006 84);
+  --surface: oklch(1 0 0);
+  --surface-sunken: oklch(0.968 0.009 84);
+  --surface-gold: oklch(0.958 0.032 88);
+
+  /* Ink — warm near-black, not #000 */
+  --ink: oklch(0.24 0.016 74);
+  --ink-muted: oklch(0.50 0.014 78);
+  --ink-faint: oklch(0.58 0.014 80);
+  --ink-inverse: oklch(0.22 0.02 74);
+
+  /* Gold — the accent, reserved for action, focus, and provenance */
+  --gold: oklch(0.80 0.125 86);
+  --gold-strong: oklch(0.74 0.135 82);
+  --bronze: oklch(0.50 0.098 76);
+  --bronze-strong: oklch(0.41 0.088 74);
+
+  /* Rules */
+  --rule: oklch(0.905 0.010 84);
+  --rule-strong: oklch(0.84 0.016 84);
+  --rule-gold: oklch(0.80 0.125 86 / 0.5);
+
+  /* State */
+  --danger: oklch(0.47 0.16 25);
+  --danger-surface: oklch(0.966 0.020 25);
+  --danger-rule: oklch(0.86 0.055 25);
+
+  /* Focus */
+  --focus-ring: oklch(0.62 0.13 80);
+
+  /* Type */
+  --font-display: 'Spectral', ui-serif, Georgia, 'Times New Roman', serif;
+  --font-ui: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  /* Spacing — 1-4-9 rhythm (4 / 16 / 36), kept to a single scale */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s6: 24px;
+  --s9: 36px;
+  --s12: 48px;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+  --measure: 68ch;
+
+  color-scheme: light;
+  background-color: var(--canvas);
+  color: var(--ink);
 }
 
 * {
@@ -26,327 +75,702 @@
 body {
   margin: 0;
   min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background-image: 
-    radial-gradient(circle at 15% 50%, rgba(59, 130, 246, 0.12), transparent 25%),
-    radial-gradient(circle at 85% 30%, rgba(139, 92, 246, 0.12), transparent 25%);
+  background-color: var(--canvas);
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 #root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ==========================================================================
+   Shell
+   ========================================================================== */
+
+.app-container {
   flex: 1;
   display: flex;
   flex-direction: column;
-  height: 100vh;
-}
-
-/* Glassmorphism utility */
-.glass-panel {
-  background: var(--panel-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--glass-border);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
-}
-
-/* Chat Layout */
-.app-container {
-  max-width: 1000px;
-  margin: 0 auto;
   width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  padding: 2rem 1rem;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 var(--s4);
 }
 
+/* Top bar rather than a centred hero: the product is an instrument, and an
+   instrument puts its name in the corner and gets out of the way. */
 .header {
-  text-align: center;
-  margin-bottom: 2rem;
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  padding: var(--s6) 0 var(--s4);
+  border-bottom: 1px solid var(--rule-gold);
 }
 
 .header h1 {
-  font-family: 'Outfit', sans-serif;
-  font-size: 2.5rem;
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   margin: 0;
-  background: var(--gradient-primary);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  letter-spacing: -0.5px;
+  color: var(--ink);
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+}
+
+/* Gold used as a mark, not as text — a small filled rule is readable where
+   gold letterforms would not be. */
+.header h1::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--gold);
+  border: 1px solid var(--bronze);
+  transform: translateY(-1px);
+  flex: none;
 }
 
 .header p {
-  color: var(--text-secondary);
-  margin-top: 0.5rem;
-  font-size: 1.1rem;
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+  letter-spacing: 0.01em;
 }
+
+/* ==========================================================================
+   Conversation
+   ========================================================================== */
 
 .chat-container {
   flex: 1;
   display: flex;
   flex-direction: column;
-  border-radius: 20px;
-  overflow: hidden;
-  position: relative;
+  min-height: 0;
 }
 
 .message-list {
   flex: 1;
   overflow-y: auto;
-  padding: 1.5rem;
+  padding: var(--s9) 0 var(--s6);
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: var(--s6);
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-strong) transparent;
 }
 
-/* Scrollbar */
 .message-list::-webkit-scrollbar {
-  width: 6px;
+  width: 10px;
+}
+.message-list::-webkit-scrollbar-thumb {
+  background: var(--rule-strong);
+  border-radius: 999px;
+  border: 3px solid var(--canvas);
 }
 .message-list::-webkit-scrollbar-track {
   background: transparent;
-}
-.message-list::-webkit-scrollbar-thumb {
-  background: var(--glass-border);
-  border-radius: 10px;
 }
 
 .message {
   display: flex;
   flex-direction: column;
-  max-width: 85%;
-  animation: fadeIn 0.3s ease forwards;
+  animation: message-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+/* Three-beat entrance: arrive small, overshoot slightly, settle. */
+@keyframes message-in {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.995);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.002);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .message.user {
   align-self: flex-end;
+  max-width: min(80%, var(--measure));
 }
 
 .message.bot {
   align-self: flex-start;
+  max-width: var(--measure);
+  width: 100%;
 }
 
-.message-content {
-  padding: 1rem 1.25rem;
-  border-radius: 18px;
-  line-height: 1.6;
-  font-size: 0.95rem;
-  overflow-x: auto;
+.message.user .message-content {
+  background: var(--surface-gold);
+  border: 1px solid var(--rule-gold);
+  border-radius: var(--radius) var(--radius) var(--radius-sm) var(--radius);
+  padding: var(--s3) var(--s4);
+  font-size: 0.9375rem;
+  color: var(--ink);
+}
+
+/* Bot answers are set as prose, not in a bubble: the words are the object, and
+   a container around them adds nothing. */
+.message.bot .message-content {
+  padding: 0;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--ink);
 }
 
 .message-content p {
-  margin-top: 0;
-  margin-bottom: 0.75rem;
+  margin: 0 0 var(--s3);
 }
-
 .message-content p:last-child {
   margin-bottom: 0;
 }
 
-.message-content ul, .message-content ol {
-  margin-top: 0.5rem;
-  margin-bottom: 0.75rem;
-  padding-left: 1.5rem;
+.message-content h1,
+.message-content h2,
+.message-content h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.3;
+  margin: var(--s4) 0 var(--s2);
+  font-size: 1.0625rem;
+}
+.message-content h1:first-child,
+.message-content h2:first-child,
+.message-content h3:first-child {
+  margin-top: 0;
 }
 
+.message-content ul,
+.message-content ol {
+  margin: var(--s2) 0 var(--s3);
+  padding-left: var(--s6);
+}
 .message-content li {
-  margin-bottom: 0.25rem;
+  margin-bottom: var(--s1);
+}
+.message-content li::marker {
+  color: var(--bronze);
 }
 
 .message-content strong {
   font-weight: 600;
-  color: var(--accent-blue);
+  color: var(--bronze-strong);
+}
+
+.message-content a {
+  color: var(--bronze);
+  text-underline-offset: 2px;
+}
+.message-content a:hover {
+  color: var(--bronze-strong);
+}
+
+.message-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.875em;
+  background: var(--surface-sunken);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.35em;
+}
+
+.message-content pre {
+  background: var(--surface-sunken);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: var(--s3);
+  overflow-x: auto;
+}
+.message-content pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.message-content blockquote {
+  margin: var(--s3) 0;
+  padding-left: var(--s4);
+  border-left: 2px solid var(--gold);
+  color: var(--ink-muted);
 }
 
 .message-content table {
   width: 100%;
   border-collapse: collapse;
-  margin: 1rem 0;
+  margin: var(--s4) 0;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
 }
-
-.message-content th, .message-content td {
-  border: 1px solid var(--glass-border);
-  padding: 0.5rem;
+.message-content th,
+.message-content td {
+  border-bottom: 1px solid var(--rule);
+  padding: var(--s2) var(--s3);
   text-align: left;
 }
-
 .message-content th {
-  background: rgba(255, 255, 255, 0.05);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+  border-bottom-color: var(--rule-strong);
 }
 
-.message.user .message-content {
-  background: var(--gradient-primary);
-  color: white;
-  border-bottom-right-radius: 4px;
-}
+/* ==========================================================================
+   Provenance
+   ========================================================================== */
 
-.message.bot .message-content {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--glass-border);
-  border-bottom-left-radius: 4px;
-  color: var(--text-primary);
-}
-
-/* Source Citations */
 .sources-container {
-  margin-top: 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  margin-top: var(--s4);
 }
 
 .source-toggle {
-  background: transparent;
-  border: none;
-  color: var(--accent-blue);
-  font-size: 0.85rem;
-  cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0;
-  font-family: inherit;
-  transition: color 0.2s;
+  gap: var(--s2);
+  min-height: 44px; /* touch target */
+  padding: 0 var(--s2);
+  margin-left: calc(var(--s2) * -1);
+  background: none;
+  border: none;
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--bronze);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: color 140ms ease;
 }
-
 .source-toggle:hover {
-  color: var(--accent-purple);
+  color: var(--bronze-strong);
+}
+.source-toggle .chevron {
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.source-toggle[aria-expanded='true'] .chevron {
+  transform: rotate(90deg);
 }
 
+/* Styled as a reference list, which is what citations actually are in a
+   research tool. */
 .source-cards {
+  list-style: none;
+  margin: var(--s2) 0 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
+  border-top: 1px solid var(--rule);
+  animation: reveal 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .source-card {
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid var(--glass-border);
-  border-radius: 8px;
-  padding: 0.75rem;
-  font-size: 0.8rem;
+  display: grid;
+  grid-template-columns: 2.25rem 1fr;
+  gap: var(--s2);
+  padding: var(--s3) 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 0.8125rem;
+}
+
+.source-index {
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--bronze);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+.source-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  min-width: 0;
 }
 
 .source-title {
-  color: var(--accent-purple);
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--s2);
   font-weight: 600;
-  margin-bottom: 0.25rem;
-  display: block;
+  color: var(--ink);
+}
+
+.source-meta {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.source-score {
+  font-size: 0.75rem;
+  color: var(--bronze);
+  font-variant-numeric: tabular-nums;
 }
 
 .source-text {
-  color: var(--text-secondary);
+  color: var(--ink-muted);
+  line-height: 1.6;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-/* Input Area */
+.cached-badge {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  margin-top: var(--s2);
+  padding: 2px var(--s2);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--bronze);
+  background: var(--surface-gold);
+  border: 1px solid var(--rule-gold);
+  border-radius: 999px;
+}
+
+/* ==========================================================================
+   Empty state — teaches the space instead of only greeting
+   ========================================================================== */
+
+.empty-state {
+  margin: auto 0;
+  padding: var(--s9) 0;
+  max-width: var(--measure);
+  animation: message-in 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.empty-state h2 {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 500;
+  line-height: 1.25;
+  margin: 0 0 var(--s2);
+  letter-spacing: -0.015em;
+}
+
+.empty-state > p {
+  margin: 0 0 var(--s6);
+  color: var(--ink-muted);
+  font-size: 0.9375rem;
+}
+
+.empty-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--bronze);
+  margin-bottom: var(--s3);
+}
+
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.suggestion {
+  text-align: left;
+  font-family: var(--font-ui);
+  font-size: 0.9375rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--gold);
+  border-radius: var(--radius-sm);
+  padding: var(--s3) var(--s4);
+  min-height: 44px;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    transform 140ms ease;
+}
+.suggestion:hover {
+  background: var(--surface-gold);
+  border-color: var(--rule-gold);
+  border-left-color: var(--bronze);
+  transform: translateX(2px);
+}
+
+/* ==========================================================================
+   Composer
+   ========================================================================== */
+
 .input-area {
-  padding: 1.5rem;
-  border-top: 1px solid var(--glass-border);
-  background: rgba(11, 15, 25, 0.8);
+  padding: var(--s4) 0 var(--s6);
+  border-top: 1px solid var(--rule);
+  background: linear-gradient(to bottom, transparent, var(--canvas) 40%);
+  position: sticky;
+  bottom: 0;
 }
 
 .input-form {
   display: flex;
-  gap: 1rem;
-  position: relative;
+  gap: var(--s2);
+  align-items: stretch;
 }
 
 .chat-input {
   flex: 1;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--glass-border);
-  border-radius: 30px;
-  padding: 1rem 1.5rem;
-  color: var(--text-primary);
-  font-size: 1rem;
-  font-family: inherit;
-  transition: all 0.3s ease;
-  outline: none;
-}
-
-.chat-input:focus {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: var(--accent-blue);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  min-width: 0;
+  height: 52px;
+  background: var(--surface);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  padding: 0 var(--s4);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 1rem; /* >=16px prevents iOS focus zoom */
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .chat-input::placeholder {
-  color: var(--text-secondary);
+  color: var(--ink-faint);
+}
+
+.chat-input:hover:not(:disabled) {
+  border-color: var(--rule-gold);
+}
+
+.chat-input:focus {
+  outline: none;
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 3px oklch(0.62 0.13 80 / 0.22);
+}
+
+.chat-input:disabled {
+  background: var(--surface-sunken);
+  color: var(--ink-faint);
+  cursor: not-allowed;
 }
 
 .send-button {
-  background: var(--gradient-primary);
-  border: none;
-  border-radius: 30px;
-  padding: 0 2rem;
-  color: white;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: transform 0.2s, opacity 0.2s;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: var(--s2);
+  min-width: 112px;
+  height: 52px;
+  padding: 0 var(--s6);
+  font-family: var(--font-ui);
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  /* Gold fill with a bronze outline: the fill alone would sit too close to
+     white to read as a defined control. */
+  background: var(--gold);
+  color: var(--ink-inverse);
+  border: 1px solid var(--bronze);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    transform 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .send-button:hover:not(:disabled) {
-  transform: translateY(-2px);
+  background: var(--gold-strong);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 10px oklch(0.50 0.098 76 / 0.22);
 }
 
 .send-button:active:not(:disabled) {
   transform: translateY(0);
+  box-shadow: none;
 }
 
 .send-button:disabled {
-  opacity: 0.5;
+  background: var(--surface-sunken);
+  color: var(--ink-faint);
+  border-color: var(--rule);
   cursor: not-allowed;
 }
 
-/* Loading Dots */
+/* ==========================================================================
+   States
+   ========================================================================== */
+
 .typing-indicator {
-  display: flex;
-  gap: 0.3rem;
-  padding: 0.5rem 1rem;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  height: 52px;
+  padding: 0 var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
   width: fit-content;
 }
 
 .dot {
-  width: 8px;
-  height: 8px;
-  background: var(--text-secondary);
+  width: 6px;
+  height: 6px;
+  background: var(--bronze);
   border-radius: 50%;
-  animation: bounce 1.4s infinite ease-in-out both;
+  animation: pulse 1.3s ease-in-out infinite both;
+}
+.dot:nth-child(1) {
+  animation-delay: -0.26s;
+}
+.dot:nth-child(2) {
+  animation-delay: -0.13s;
 }
 
-.dot:nth-child(1) { animation-delay: -0.32s; }
-.dot:nth-child(2) { animation-delay: -0.16s; }
-
-@keyframes bounce {
-  0%, 80%, 100% { transform: scale(0); }
-  40% { transform: scale(1); }
+@keyframes pulse {
+  0%,
+  70%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8);
+  }
+  35% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
-/* Semantic cache indicator */
-.cached-badge {
-  align-self: flex-start;
-  margin-top: 0.4rem;
-  padding: 0.15rem 0.55rem;
-  font-size: 0.7rem;
-  letter-spacing: 0.05em;
+/* Error is carried by a label and a border, never by colour alone. */
+.message.error .message-content {
+  background: var(--danger-surface);
+  border: 1px solid var(--danger-rule);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--radius-sm);
+  padding: var(--s3) var(--s4);
+  color: var(--ink);
+}
+
+.error-label {
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-secondary);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 999px;
+  color: var(--danger);
+  margin-bottom: var(--s1);
+}
+
+/* ==========================================================================
+   Accessibility
+   ========================================================================== */
+
+:where(button, input, a, [tabindex]):focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* The composer keeps its own ring on the input chrome. */
+.chat-input:focus-visible {
+  outline: none;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .suggestion:hover,
+  .send-button:hover:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 640px) {
+  .app-container {
+    padding: 0 var(--s3);
+  }
+
+  .header {
+    padding: var(--s4) 0 var(--s3);
+  }
+
+  .header p {
+    display: none; /* the wordmark carries it at this width */
+  }
+
+  .message-list {
+    padding: var(--s6) 0 var(--s4);
+    gap: var(--s4);
+  }
+
+  .message.user {
+    max-width: 92%;
+  }
+
+  .empty-state h2 {
+    font-size: 1.375rem;
+  }
+
+  /* Stack the composer: a 112px button beside a field on a 320px screen
+     leaves the field unusable. */
+  .input-form {
+    flex-direction: column;
+  }
+
+  .send-button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .source-card {
+    grid-template-columns: 1.75rem 1fr;
+  }
 }

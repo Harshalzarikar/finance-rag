@@ -44,6 +44,14 @@ Context:
 # chunk is replaced by its parent section.
 _SCORE_KEYS = ("retriever", "bm25_score", "relevance_score")
 
+# Returned when retrieval finds nothing relevant enough to answer from. The
+# generator is not consulted, because there is nothing to ground an answer in and
+# citing the near-misses would imply they support it.
+NO_RELEVANT_PASSAGE_ANSWER = (
+    "No passage in the indexed corpus is relevant to this question, so I cannot answer it. "
+    "The corpus may not cover this topic, or it may not be indexed yet."
+)
+
 
 class RAGPipeline:
     """Coordinates retrieval, reranking, generation, and caching."""
@@ -78,7 +86,15 @@ class RAGPipeline:
             }
 
         documents = self._retrieve(query)
-        reranked = self._rerank(query, documents, top_k_rerank)
+        reranked = self._relevant(self._rerank(query, documents, top_k_rerank))
+        if not reranked:
+            return {
+                "answer": NO_RELEVANT_PASSAGE_ANSWER,
+                "sources": [],
+                "cached": False,
+                "cache_similarity": None,
+            }
+
         answer = self._generate(query, reranked)
         sources = self._build_sources(reranked)
 
@@ -99,9 +115,14 @@ class RAGPipeline:
             return
 
         documents = self._retrieve(query)
-        reranked = self._rerank(query, documents, top_k_rerank)
+        reranked = self._relevant(self._rerank(query, documents, top_k_rerank))
         sources = self._build_sources(reranked)
         yield {"type": "sources", "sources": sources, "cached": False}
+
+        if not reranked:
+            yield {"type": "token", "value": NO_RELEVANT_PASSAGE_ANSWER}
+            yield {"type": "done", "cached": False}
+            return
 
         context = self._build_context(reranked)
         chunks: list[str] = []
@@ -179,6 +200,34 @@ class RAGPipeline:
         if not documents:
             return []
         return self.reranker.rerank(query, documents, top_n=top_k_rerank)
+
+    @staticmethod
+    def _relevant(documents: list[Document]) -> list[Document]:
+        """Keep only passages the reranker judged relevant enough to cite.
+
+        Without this, a query the corpus cannot answer still produced a full list of
+        citations — the least-irrelevant passages — which reads as evidence for an
+        answer that does not exist.
+
+        If no document carries a reranker score (reranking disabled or failed), the
+        floor cannot be applied and everything is kept, preserving the previous
+        behaviour when the reranker is unavailable.
+        """
+        scored = [doc for doc in documents if doc.metadata.get("relevance_score") is not None]
+        if not scored:
+            return documents
+
+        floor = get_settings().rerank_min_score
+        relevant = [doc for doc in scored if float(doc.metadata["relevance_score"]) >= floor]
+
+        if len(relevant) != len(scored):
+            logger.info(
+                "Dropped %d/%d passages below the relevance floor (%.2f).",
+                len(scored) - len(relevant),
+                len(scored),
+                floor,
+            )
+        return relevant
 
     # ------------------------------------------------------------------
     # Generation

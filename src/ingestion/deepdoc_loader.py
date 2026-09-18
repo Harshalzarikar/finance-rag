@@ -86,7 +86,7 @@ class DeepDocLoader(BaseLoader):
                     metadata = {
                         "source": filename,
                         "file_path": self.file_path,
-                        "page": page.get("metadata", {}).get("page", None),
+                        "page": page.get("metadata", {}).get("page_number"),
                         "parser": "deepdoc_layout",
                     }
                     yield Document(page_content=md_text, metadata=metadata)

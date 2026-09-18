@@ -280,3 +280,102 @@ def test_stream_stores_the_generated_answer():
 
     assert cache.stored[0][0] == "explain garch"
     assert cache.stored[0][1] == "streamed answer"
+
+
+# ---------------------------------------------------------------------------
+# Relevance floor
+# ---------------------------------------------------------------------------
+
+
+class _ScoredReranker:
+    """Assigns a fixed relevance score to each document, in order."""
+
+    def __init__(self, scores: list[float]) -> None:
+        self.scores = scores
+
+    def rerank(self, query: str, documents: list[Document], top_n: int = 5) -> list[Document]:
+        del query
+        return [
+            Document(page_content=doc.page_content, metadata={**doc.metadata, "relevance_score": score})
+            for doc, score in zip(documents[:top_n], self.scores, strict=False)
+        ]
+
+
+class _UnscoredReranker:
+    """Mimics a disabled or failing reranker: returns documents with no score."""
+
+    def rerank(self, query: str, documents: list[Document], top_n: int = 5) -> list[Document]:
+        del query
+        return list(documents[:top_n])
+
+
+def _corpus(count: int) -> list[Document]:
+    return [_document(f"chunk {index}", source=f"{index}.pdf") for index in range(count)]
+
+
+def test_passages_below_the_relevance_floor_are_not_cited():
+    pipeline = _build(documents=_corpus(3), reranker=_ScoredReranker([0.91, 0.64, 0.05]))
+
+    result = pipeline.run("explain garch")
+
+    assert [source["score"] for source in result["sources"]] == [0.91, 0.64]
+
+
+def test_unanswerable_query_declines_without_citations():
+    """Regression: a 'no answer' reply used to still list the near-misses as citations."""
+    pipeline = _build(documents=_corpus(3), reranker=_ScoredReranker([0.07, 0.05, 0.04]))
+
+    result = pipeline.run("what is the heston model?")
+
+    assert result["sources"] == []
+    assert "No passage" in result["answer"]
+    assert result["cached"] is False
+
+
+def test_declining_skips_the_generator():
+    pipeline = _build(documents=_corpus(2), reranker=_ScoredReranker([0.01, 0.01]))
+
+    def explode(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("the generator must not run when nothing is relevant")
+
+    pipeline._chain = explode  # type: ignore[method-assign]
+
+    assert pipeline.run("anything")["sources"] == []
+
+
+def test_a_declined_answer_is_not_cached():
+    """Caching a non-answer would outlive a re-index that makes it answerable."""
+    cache = _Cache()
+    pipeline = _build(documents=_corpus(2), cache=cache, reranker=_ScoredReranker([0.02, 0.01]))
+
+    pipeline.run("anything")
+
+    assert cache.stored == []
+
+
+def test_missing_scores_disable_the_floor():
+    """With no reranker there is no score to judge by, so nothing is dropped."""
+    pipeline = _build(documents=_corpus(3), reranker=_UnscoredReranker())
+
+    assert len(pipeline.run("explain garch")["sources"]) == 3
+
+
+def test_the_floor_is_configurable(monkeypatch):
+    from src.config.settings import get_settings
+
+    monkeypatch.setenv("RERANK_MIN_SCORE", "0.95")
+    get_settings.cache_clear()
+
+    pipeline = _build(documents=_corpus(2), reranker=_ScoredReranker([0.90, 0.20]))
+
+    assert pipeline.run("anything")["sources"] == []
+
+
+def test_stream_declines_without_citations():
+    pipeline = _build(documents=_corpus(2), reranker=_ScoredReranker([0.03, 0.02]))
+
+    events = list(pipeline.stream("anything"))
+
+    assert events[0]["sources"] == []
+    tokens = "".join(event["value"] for event in events if event["type"] == "token")
+    assert "No passage" in tokens

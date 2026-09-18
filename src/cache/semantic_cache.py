@@ -109,7 +109,7 @@ class SemanticCache:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def get(self, query: str) -> CacheHit | None:
+    def get(self, query: str, *, retry: bool = True) -> CacheHit | None:
         """Return a cached answer for a semantically similar query, if any."""
         if self.client is None or not query.strip():
             return None
@@ -123,6 +123,17 @@ class SemanticCache:
                 .dialect(2),
                 query_params={"vec": self._embed(query).tobytes()},
             )
+        except redis.ResponseError as exc:
+            # The index can disappear underneath a running process (Redis restart,
+            # FLUSHDB). _index_ready would otherwise short-circuit the existence
+            # check and leave the cache silently dead until the API restarted.
+            if retry and "no such index" in str(exc).lower():
+                logger.warning("Semantic cache index is missing — recreating it.")
+                self._index_ready = False
+                return self.get(query, retry=False)
+            self.stats.errors += 1
+            logger.warning("Semantic cache lookup failed (%s) — bypassing cache.", exc)
+            return None
         except Exception as exc:  # noqa: BLE001 - cache outage must not break requests
             self.stats.errors += 1
             logger.warning("Semantic cache lookup failed (%s) — bypassing cache.", exc)

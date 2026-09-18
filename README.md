@@ -166,6 +166,11 @@ Ingestion is idempotent and resumable:
 - Progress is written atomically after every file; an interrupted run resumes
   where it stopped.
 
+The manifest tracks file contents and the target collection, **not the parsing or
+chunking code**. After changing `src/ingestion/`, re-run with `--reset` so every
+document is re-chunked; otherwise unchanged files are skipped and keep their old
+chunks.
+
 PDF parsing is the bottleneck and is parallelised with `--concurrency`; indexing
 itself stays serial because the embedding model and vector store are not
 thread-safe.
@@ -196,11 +201,18 @@ leaked — it goes to the logs, correlated by the `X-Request-ID` response header
 cp .env.example .env      # then edit: set API_KEYS, provider keys, CORS_ORIGINS
 docker compose up -d --build
 docker compose --profile tools run --rm ingest        # build the indexes
+docker compose restart api                            # load the new keyword index
 curl -fsS localhost:8000/health/ready
 ```
 
 The stack runs `api`, `qdrant`, `redis`, `frontend` (Caddy), and a one-shot
 `ingest` job behind the `tools` profile.
+
+> **Restart the API after ingesting.** The retrieval stack is built once per
+> process and cached, so a running `api` container will not pick up a BM25 index
+> created after it started — `/health/ready` reports `bm25` as a non-required
+> failure and retrieval silently runs dense-only. `docker compose restart api`
+> after every ingestion run fixes it.
 
 Additional notes for a real deployment:
 

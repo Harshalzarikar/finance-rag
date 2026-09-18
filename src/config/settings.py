@@ -135,6 +135,16 @@ class Settings(BaseSettings):
     rerank_enabled: bool = Field(True, description="Enable Cohere cross-encoder reranking")
     rerank_model: str = Field("rerank-v3.5", description="Cohere rerank model")
     rerank_max_candidates: int = Field(40, ge=1, description="Cap on documents sent to the reranker")
+    rerank_min_score: float = Field(
+        0.30,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum reranker relevance for a passage to count as supporting evidence. "
+            "Passages below it are dropped, and if none clear it the service declines to "
+            "answer rather than citing unrelated documents."
+        ),
+    )
 
     # ------------------------------------------------------------------
     # Semantic cache

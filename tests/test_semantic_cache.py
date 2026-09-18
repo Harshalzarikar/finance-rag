@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import redis
 
 from src.cache.semantic_cache import CacheHit, SemanticCache
 
@@ -137,3 +138,49 @@ def test_hit_rate_is_reported():
 
 def test_hit_rate_is_zero_without_traffic():
     assert _cache(_FakeSearch(_SearchResult([]))).stats.hit_rate == 0.0
+
+
+class _DroppableRedis:
+    """An index that can vanish, as it does on a Redis restart or FLUSHDB."""
+
+    def __init__(self, result: _SearchResult) -> None:
+        self._result = result
+        self.index_exists = False
+        self.recreations = 0
+
+    def ft(self, name: str) -> _DroppableRedis:  # noqa: ARG002
+        return self
+
+    def info(self) -> dict:
+        if not self.index_exists:
+            raise redis.ResponseError("no such index")
+        return {}
+
+    def create_index(self, fields, definition) -> None:  # noqa: ANN001
+        del fields, definition
+        self.index_exists = True
+        self.recreations += 1
+
+    def search(self, query, query_params=None):  # noqa: ANN001, ANN201
+        del query, query_params
+        if not self.index_exists:
+            raise redis.ResponseError("rag_semantic_cache: no such index")
+        return self._result
+
+    def drop(self) -> None:
+        self.index_exists = False
+
+
+def test_cache_recovers_when_the_index_disappears():
+    """Guards a one-shot flag that left the cache dead until the API restarted."""
+    client = _DroppableRedis(_SearchResult([]))
+    cache = SemanticCache(client, dim=4, threshold=0.88, ttl_seconds=60, max_candidates=1)
+    cache._embed = lambda text: np.ones(4, dtype=np.float32)  # type: ignore[method-assign]
+
+    cache.get("first")
+    assert client.recreations == 1
+
+    client.drop()
+
+    cache.get("second")
+    assert client.recreations == 2

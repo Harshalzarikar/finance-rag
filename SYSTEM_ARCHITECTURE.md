@@ -148,6 +148,18 @@ leak across requests in a long-lived process.
 Reranking failures fall back to the fused ordering — an outage degrades answer
 quality rather than availability.
 
+Reranked passages below `RERANK_MIN_SCORE` are discarded before they can be cited, and
+if nothing clears it the service declines without calling the generator at all. This
+exists because retrieval always returns `k` results whether or not any of them are
+relevant: an unanswerable query used to be answered with an honest "I don't know" *and*
+a list of near-miss citations, which implies those documents support a conclusion they
+do not. The reranker had already judged them irrelevant; the score was simply being
+thrown away.
+
+*Rejected:* letting the LLM's own "insufficient context" reply carry the message while
+still returning every candidate as a citation. It is cheaper to implement but presents
+unrelated documents as evidence, which is worse than returning no source at all.
+
 ## 5. Generation
 
 A single `ChatPromptTemplate` pairs a finance-analyst system prompt with the

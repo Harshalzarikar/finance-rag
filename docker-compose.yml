@@ -23,6 +23,9 @@ services:
       # Container-internal addresses win over whatever .env contains, so the
       # same .env works for local development and for the compose stack.
       QDRANT_URL: http://qdrant:6333
+      # Cleared explicitly: .env may hold a Qdrant Cloud key, and sending it to
+      # the local server produces an "insecure connection" warning.
+      QDRANT_API_KEY: ""
       REDIS_URL: redis://redis:6379/0
       DOC_STORE_DIR: /data/doc_store
       BM25_INDEX_FILE: /data/bm25_index.pkl
@@ -51,7 +54,9 @@ services:
         max-file: "3"
 
   qdrant:
-    image: qdrant/qdrant:v1.12.4
+    # Kept aligned with the qdrant-client pin in requirements.txt: the client
+    # warns when the server's minor version differs by more than one.
+    image: qdrant/qdrant:v1.18.3
     restart: unless-stopped
     volumes:
       - qdrant_data:/qdrant/storage
@@ -116,6 +121,7 @@ services:
     env_file: .env
     environment:
       QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ""
       REDIS_URL: redis://redis:6379/0
       RAW_PDFS_DIR: /pdfs
       DOC_STORE_DIR: /data/doc_store
@@ -125,7 +131,9 @@ services:
       - rag_data:/data
       # Mount the corpus read-only; ingestion never writes to it.
       - ./real_pdfs:/pdfs:ro
-    command: ["python", "scripts/ingest.py"]
+    # entrypoint (not command) so that `docker compose run ingest --limit 5`
+    # appends the flag to the script instead of replacing the whole command.
+    entrypoint: ["python", "scripts/ingest.py"]
     depends_on:
       qdrant:
         condition: service_healthy
