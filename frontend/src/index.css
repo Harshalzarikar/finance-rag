@@ -134,8 +134,49 @@ body {
 .message-content {
   padding: 1rem 1.25rem;
   border-radius: 18px;
-  line-height: 1.5;
+  line-height: 1.6;
   font-size: 0.95rem;
+  overflow-x: auto;
+}
+
+.message-content p {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+}
+
+.message-content p:last-child {
+  margin-bottom: 0;
+}
+
+.message-content ul, .message-content ol {
+  margin-top: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding-left: 1.5rem;
+}
+
+.message-content li {
+  margin-bottom: 0.25rem;
+}
+
+.message-content strong {
+  font-weight: 600;
+  color: var(--accent-blue);
+}
+
+.message-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+
+.message-content th, .message-content td {
+  border: 1px solid var(--glass-border);
+  padding: 0.5rem;
+  text-align: left;
+}
+
+.message-content th {
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .message.user .message-content {
@@ -295,4 +336,17 @@ body {
 @keyframes bounce {
   0%, 80%, 100% { transform: scale(0); }
   40% { transform: scale(1); }
+}
+
+/* Semantic cache indicator */
+.cached-badge {
+  align-self: flex-start;
+  margin-top: 0.4rem;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
 }

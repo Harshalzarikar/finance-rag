@@ -1,0 +1,14 @@
+-r requirements.txt
+
+# --- Testing -----------------------------------------------------------------
+pytest==9.1.1
+pytest-asyncio==1.4.0
+httpx==0.28.1
+
+# --- Lint / types ------------------------------------------------------------
+ruff==0.16.8
+mypy==2.3.1
+
+# --- Retrieval evaluation ----------------------------------------------------
+# Used only by tests/eval/run_eval.py. Safe to omit in production images.
+ragas==0.4.3

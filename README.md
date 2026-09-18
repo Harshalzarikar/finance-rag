@@ -1,305 +1,284 @@
-# 📈 Quantitative Finance RAG
+# Quantitative Finance RAG
 
-> A production-grade, locally-validated Retrieval-Augmented Generation (RAG) system built over 1,190 ArXiv quantitative finance research papers (~31,000 pages, ~20M tokens).
+A production-oriented retrieval-augmented generation service over a corpus of
+quantitative finance research papers. Layout-aware parsing, parent/child chunking,
+hybrid keyword + dense retrieval, cross-encoder reranking, grounded citations, and
+a Redis-backed semantic cache.
 
----
+Built on design ideas borrowed from [RAGFlow](https://github.com/infiniflow/ragflow)
+rather than on RAGFlow itself — see [Attribution](#attribution).
 
-## 🛠️ Tech Stack
-
-| Layer | Technology |
-| :--- | :--- |
-| **LLM** | Llama 3.3 70B via Groq API (low-latency inference) |
-| **Embeddings** | `all-MiniLM-L6-v2` (HuggingFace, CPU-friendly, 384-dim) |
-| **Vector DB** | Qdrant (local HNSW index, ~112,000 vectors) |
-| **Keyword Search** | BM25 (rank-bm25) |
-| **Reranker** | Cohere Rerank v3.0 (cross-encoder) |
-| **Backend** | FastAPI + Uvicorn + Pydantic v2 |
-| **Frontend** | React + Vite |
-| **Evaluation** | RAGAS Framework (LLM-as-a-Judge) |
-| **PDF Extraction** | PyMuPDF (C++ bindings, fastest available) |
-
----
-
-## 🌟 Architecture Overview
+## Architecture
 
 ```
-User Query
-    │
-    ├──► Semantic Cache (cosine sim > 0.88) ──► Cache Hit ──► Fast FastAPI Response
-    │
-    ▼ Cache Miss
-Query Compressor (LLM)          → condenses long queries into precise search terms
-    │
-    ▼
-Ensemble Retriever
-    ├── Qdrant Vector Search  (weight: 0.6)  → semantic meaning
-    └── BM25 Keyword Search   (weight: 0.4)  → exact term matching
-    │
-    ▼  Reciprocal Rank Fusion (RRF)
-    │
-    ▼
-Cohere Rerank v3.0              → cross-encoder scores candidates, keeps top 2
-    │
-    ▼
-Groq Llama 3.3 70B              → synthesizes final answer with full parent-chunk context
-    │
-    ▼
-FastAPI Response                → answer + source citations (PDF filename + excerpt)
-    │
-    └──► Cache Set (stores query, answer, sources)
+                 browser
+                    │  HTTPS
+                    ▼
+        ┌───────────────────────────┐
+        │  frontend (Caddy)         │   serves the SPA
+        │  /api/*  ──► api:8000     │   reverse-proxies the API
+        └───────────┬───────────────┘
+                    ▼
+        ┌───────────────────────────┐
+        │  api (FastAPI)            │
+        │   auth · rate limit       │
+        │   semantic cache          │
+        │   hybrid recall           │
+        │   rerank · generate       │
+        └──┬──────────┬─────────┬───┘
+           ▼          ▼         ▼
+       qdrant      redis    Groq / Cohere
+     (vectors)   (cache,    (generation,
+                  limits)    reranking)
 ```
 
-### Key Design Decisions
+Query path:
 
-1. **Parent-Child Chunking** — Child chunks (700 chars / ~175 tokens) are embedded for precise semantic search. Size is capped at 700 chars specifically to stay within `all-MiniLM-L6-v2`'s hard 256-token context window — dense LaTeX can tokenize at 0.35 tokens/char. On retrieval, child chunks map back to their Parent chunk (4,000 chars / ~1,000 tokens) fed to the LLM for full context.
-
-2. **Hybrid BM25 + Qdrant Retrieval** — Pure semantic search fails on exact finance acronyms (e.g., `LTRO`, `e-MID`, `HJM`). BM25 covers exact keyword matching; Qdrant covers conceptual similarity. Both are fused via RRF.
-
-3. **Memory-Safe Ingestion** — `PyMuPDF` with `lazy_load()` + `BATCH_SIZE=20` keeps peak RAM under **250 MB** while processing 31,000 pages — runnable on a standard laptop.
-
-4. **Semantic Caching** — Incoming queries are embedded and compared against past queries via cosine similarity. If similarity > 0.88, the API short-circuits and returns the cached answer instantly. Drops P99 latency from ~5-10s down to 0.01s for repeat financial queries, avoiding massive LLM API costs at scale.
-
-5. **Greeting Short-Circuit** — Greeting queries (`hi`, `hello`, etc.) are intercepted before they hit the retrieval pipeline, preventing the LLM from matching math subscripts like `h_i` to "hi" and hallucinating.
-
----
-
-## 🧮 Local Hardware Footprint (Measured)
-
-| Component | Actual Size | Description |
-| :--- | :--- | :--- |
-| **Raw PDFs (Input)** | `1.56 GB` | 1,190 ArXiv quantitative finance papers |
-| **Qdrant Vector DB** | `579 MB` | HNSW index (`all-MiniLM-L6-v2`, 384-dim) |
-| **BM25 Sparse Index** | `164 MB` | Serialized keyword matching dictionary |
-| **Parent Doc Store** | `104 MB` | Pickled parent chunks (LLM context) |
-| **Total Index Size** | **~847 MB** | Full retrieval system on disk |
-| **Peak RAM (Ingestion)** | `< 250 MB` | Via `lazy_load()` batching |
-
----
-
-## ⚠️ Known Limitation & Enterprise Path
-
-**Concurrent Multi-Worker Access:**
-The local Qdrant file-based client uses a file lock — only one process can open the database at a time. This means `uvicorn api:app --workers N` (N > 1) will crash all workers except the first.
-
-**Current behaviour:** Single-worker async FastAPI handles concurrent users correctly.
-**Enterprise fix:** Replace `QdrantClient(path=...)` with `QdrantClient(url=..., api_key=...)` pointing to a Qdrant Cloud / self-hosted server instance. This is a **2-line code change** — the rest of the architecture is identical.
-
-> See [`SYSTEM_ARCHITECTURE.md`](./SYSTEM_ARCHITECTURE.md) for the full enterprise architecture design — including AWS S3, SQS, Kubernetes, and cost projections up to 10M documents.
-
----
-
-## 🏭 Production Deployment Architecture
-
-This project is a validated **Proof of Concept (POC)**. The table below shows the exact infrastructure swap required to take it to enterprise production — every component maps 1-to-1 with what's already built locally.
-
-### Component Mapping: POC → Enterprise
-
-| Component | Local POC (Built ✅) | Enterprise Production | Why the Change |
-| :--- | :--- | :--- | :--- |
-| **PDF Storage** | `./real_pdfs/` (local disk) | AWS S3 / GCS Bucket | Durable, scalable object storage |
-| **Vector Database** | Qdrant file-based (single process) | Qdrant Cloud / self-hosted server | Supports concurrent workers & horizontal scaling |
-| **Keyword Index** | `bm25_index.pkl` (local file) | Elasticsearch / OpenSearch | Distributed, sharded keyword search |
-| **Parent Doc Store** | Pickle files (local disk) | Redis / DynamoDB | Low-latency key-value with replication |
-| **Ingestion Pipeline** | `retriever_setup.py` (manual script) | Apache Airflow / AWS Lambda (event-driven) | Auto-triggers on new document upload |
-| **Embedding Workers** | Local CPU (1 machine, ~1hr/1190 PDFs) | GPU instances (A10G via SageMaker) | 10-50x faster embedding generation |
-| **API Server** | Single Uvicorn worker | Kubernetes (EKS/GKE) with HPA auto-scaling | Zero-downtime, handles traffic spikes |
-| **Rate Limiting** | None | AWS API Gateway / Kong | Protects against API abuse |
-| **Auth** | None | OAuth2 / JWT (API Gateway) | Secure multi-tenant access |
-| **Monitoring** | Python `logging` | Prometheus + Grafana / Datadog | Latency, error rate, throughput dashboards |
-| **CI/CD** | Manual `git push` | GitHub Actions → Docker → ECS/GKE | Automated test, build, deploy pipeline |
-
-> **Code change required:** Only 2 lines in `core.py` — swap `QdrantClient(path=...)` for `QdrantClient(url=..., api_key=...)`. All retrieval, reranking, and generation logic stays identical.
-
----
-
-### 📐 Scale & Cost Projections
-
-Scaling calculations derived from live measured footprint: **579 MB Qdrant / 1,190 PDFs = 487 bytes/vector**.
-
-| Scale Tier | Documents | Vectors | Qdrant Storage | Est. Monthly Infra Cost |
-| :--- | ---: | ---: | ---: | ---: |
-| **POC (Local)** | 1,190 | ~80K | 579 MB | **$0** |
-| **Startup** | 10,000 | ~672K | ~4.8 GB | **~$80/mo** |
-| **Small Firm** | 50,000 | ~3.4M | ~25 GB | **~$300/mo** |
-| **Mid-Size Firm** | 500,000 | ~33.6M | ~245 GB | **~$1,800/mo** |
-| **Enterprise** | 5,000,000 | ~336M | ~2.5 TB | **~$12,000/mo** |
-| **Hyperscale** | 10,000,000 | ~672M | ~4.9 TB | **~$22,000/mo** |
-
----
-
-### Per-Request API Cost Breakdown (At Scale)
-
-**Current POC cost = $0.** All APIs used in this project have free tiers that cover development and demo usage:
-
-| API | Free Tier Limit | Paid tier kicks in when... |
-| :--- | :--- | :--- |
-| **Groq** | 6,000 req/day, 500K tokens/day | > 6K queries/day or need SLA |
-| **Cohere Rerank** | 1,000 calls/month | > 1K reranks/month |
-| **HuggingFace Embeddings** | Free forever (runs locally) | Never — stays on CPU |
-
-Once free limits are exceeded in production:
-
-| API Call | Model | Cost Per 1M tokens | Avg tokens/request | Cost/request |
-| :--- | :--- | :--- | :--- | :--- |
-| **Query Compression** | Groq Llama 3.3 70B | ~$0.59 | ~150 tokens | ~$0.000089 |
-| **LLM Generation** | Groq Llama 3.3 70B | ~$0.79 | ~2,000 tokens | ~$0.0016 |
-| **Cohere Rerank** | Rerank v3.0 | $2.00 / 1K searches | 1 search | ~$0.002 |
-| **Embeddings** | all-MiniLM-L6-v2 | $0 (local CPU) | — | **$0** |
-| **Total per query** | | | | **~$0.004** |
-
-> At 10,000 queries/day → **~$40/day in API costs**. Reduce by caching frequent queries (Redis) and batching Cohere rerank calls.
-
----
-
-### 🔒 Enterprise Security Additions
-
-| Layer | Implementation |
-| :--- | :--- |
-| **Transport** | TLS 1.3 (HTTPS enforced at API Gateway) |
-| **Storage** | AES-256 at rest (S3 server-side encryption) |
-| **Authentication** | OAuth2 + JWT (30-min token expiry) |
-| **Document Access Control** | Qdrant payload filters for tenant isolation |
-| **Audit Logging** | All queries logged to CloudWatch / BigQuery |
-| **PII Scrubbing** | Pre-ingestion Lambda detects and redacts sensitive fields |
-| **Rate Limiting** | 100 req/min per API key (API Gateway throttling) |
-
----
-
-## 10 Million Document Scale Design
-
-Numbers derived from measured POC footprint (579 MB Qdrant / 1,190 PDFs = 487 bytes/vector).
-
-### Storage at 10M PDFs
-
-| Component | Size | Service |
-| :--- | :--- | :--- |
-| Raw PDFs | ~13 TB | AWS S3 |
-| Qdrant Vector DB | ~4.9 TB | Qdrant Cloud (10 shards, 2 replicas each) |
-| BM25 Keyword Index | ~1.4 TB | Elasticsearch (3-node cluster) |
-| Parent Doc Store | ~876 GB | DynamoDB |
-| Vectors count | ~672M | 384-dim, all-MiniLM-L6-v2 |
-
-### Ingestion at 10M PDFs
-
-Single CPU script takes ~350 days. Distributed GPU pipeline:
-
-| Step | Tool | Time |
-| :--- | :--- | :--- |
-| PDF upload trigger | S3 Event → SQS queue | instant |
-| Text extraction | PyMuPDF workers (ECS pods) | parallel |
-| Embedding generation | 100 × A10G GPU pods, batch=512 | ~84 hours |
-| Vector upsert | Qdrant bulk API | included above |
-| Parent chunk storage | DynamoDB bulk write | included above |
-
-### Monthly Running Cost at 10M PDFs
-
-| Component | Service | Cost/mo |
-| :--- | :--- | :--- |
-| PDF Storage | AWS S3 (13 TB) | ~$300 |
-| Vector DB | Qdrant Cloud (4.9 TB) | ~$8,000 |
-| Keyword Index | Elasticsearch (3 nodes) | ~$2,500 |
-| Parent Doc Store | DynamoDB (876 GB) | ~$220 |
-| API Server | Kubernetes EKS (5 pods) | ~$800 |
-| LLM + Reranker APIs | Groq + Cohere (10K queries/day) | ~$1,200 |
-| Cache | Redis ElastiCache | ~$120 |
-| Monitoring | Datadog | ~$300 |
-| **Total** | | **~$13,440/mo** |
-
-### What changes in the code
-
-Only 2 lines change in `core.py`. Everything else — chunking, retrieval logic, reranking, generation — stays identical.
-
-```python
-# POC (local file)
-client = QdrantClient(path="./qdrant_db_local")
-
-# 10M scale (server)
-client = QdrantClient(url=os.environ["QDRANT_URL"], api_key=os.environ["QDRANT_API_KEY"])
+```
+query
+  └─► semantic cache ──hit──► return cached answer
+        │ miss
+        ├─► BM25 keyword recall  (k=8)
+        ├─► Qdrant dense recall  (k=20 candidates)
+        ├─► fuse with weighted reciprocal rank fusion (0.4 / 0.6)
+        ├─► expand child chunks back to their parent sections
+        ├─► drop duplicate passages
+        ├─► Cohere cross-encoder rerank (top_n)
+        └─► Groq generation with [Source: …] labels ──► answer + citations
 ```
 
-BM25 moves from a `.pkl` file to Elasticsearch. Parent doc store moves from pickle files to DynamoDB. Query logic is untouched.
+Ingestion path:
 
----
+```
+PDF ─► DeepDoc-style layout parsing (pymupdf4llm, ONNX DLR/TSR) ─► Markdown per page
+    ─► parent split on Markdown heading boundaries
+    ─► child split (~700 chars, 80 overlap)
+    ├─► embeddings ─► Qdrant
+    ├─► parents ─────► local document store
+    └─► children ────► BM25 keyword index
+```
 
-## 🚀 Setup & Installation
+Both indexes are built from a single split, so a keyword hit and a dense hit refer
+to the same unit of text and carry the same citation metadata.
 
-### 1. Clone & Install
+See [SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md) for the reasoning behind each
+of these choices.
+
+## Requirements
+
+- Python 3.13
+- Docker + Docker Compose (for the containerised stack); a local run needs Qdrant
+  and Redis Stack reachable, or you can run Qdrant in embedded mode
+- API keys for Groq (generation) and Cohere (reranking). Both are optional at
+  start-up: without them the service reports `degraded` on `/health/ready`
+  instead of failing to boot.
+
+## Configuration
+
+Every setting has a default and is documented in [`.env.example`](.env.example).
+Copy it and fill in the values:
 
 ```bash
-git clone https://github.com/Harshalzarikar/finance-rag.git
-cd finance-rag
+cp .env.example .env
+```
+
+Environment variables take precedence over `.env`, which is useful for overriding
+a single value in a container or a test.
+
+The settings that most often need changing:
+
+| Variable | Default | Notes |
+|---|---|---|
+| `API_KEYS` | *(empty)* | Comma-separated. **Empty disables authentication** — set this in any deployment reachable by others. |
+| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated browser origins. |
+| `QDRANT_URL` | `http://localhost:6333` | Leave empty to use embedded on-disk Qdrant (single process only). |
+| `REDIS_URL` | `redis://localhost:6379/0` | Must be a **Redis Stack** server; the plain `redis` image has no vector index. |
+| `GROQ_API_KEY` / `COHERE_API_KEY` | *(empty)* | Required for generation and reranking respectively. |
+| `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `BAAI/bge-small-en-v1.5` / `384` | Validated against each other at start-up; a mismatch is a hard error. |
+| `SEMANTIC_CACHE_THRESHOLD` | `0.88` | Cosine similarity required for a cache hit. |
+
+## Running locally
+
+```bash
 python -m venv venv
-# Activate (Windows)
-.\venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+venv/Scripts/activate          # Windows
+# source venv/bin/activate     # Linux/macOS
+
+pip install -r requirements-dev.txt
+
+# Infrastructure (or run the full stack with docker compose instead)
+docker compose up -d qdrant redis
+
+# Build the indexes — the first thing to do on a fresh checkout
+python scripts/ingest.py --limit 5     # smoke test
+python scripts/ingest.py               # full corpus
+
+# Serve
+uvicorn src.api.main:app --reload --port 8000
 ```
 
-### 2. Environment Variables
+The API is then at `http://localhost:8000` with interactive docs at `/docs`.
 
-Create a `.env` file in the project root:
-
-```env
-GROQ_API_KEY="your_groq_key"
-COHERE_API_KEY="your_cohere_key"
-GOOGLE_API_KEY="your_gemini_key"
-HF_DATASET_REPO="zarikarharry1412/finance-rag-indexes"
-```
-
----
-
-## 🛠️ Usage Pipeline
-
-> The raw PDFs and database files are excluded from the repo via `.gitignore`. You must generate them locally following the steps below.
-
-**Step 1 — Download the Dataset**
 ```bash
-python download_pdfs.py
-```
-*Downloads 1,190 ArXiv quantitative finance PDFs into `./real_pdfs`*
+curl -H "X-API-Key: $API_KEYS" -H 'Content-Type: application/json' \
+     -d '{"query": "What is a volatility smile?"}' \
+     http://localhost:8000/chat
 
-**Step 2 — Build the Vector Database**
+# Server-Sent Events, citations first then tokens
+curl -N -H "X-API-Key: $API_KEYS" -H 'Content-Type: application/json' \
+     -d '{"query": "Explain GARCH"}' \
+     http://localhost:8000/chat/stream
+```
+
+### Frontend development
+
 ```bash
-python retriever_setup.py
+cd frontend
+npm install
+npm run dev
 ```
-*Chunks 31,000+ pages into ~112,000 vectors and persists them to `./qdrant_db_local`. Takes ~1 hour on a standard CPU.*
 
-**Step 3 — Build the Keyword Index**
+Vite proxies `/api` to `http://localhost:8000` (override with `VITE_PROXY_TARGET`),
+so the browser always talks to a single relative base path — the same one used in
+production.
+
+## Ingestion
+
 ```bash
-python build_bm25.py
+python scripts/ingest.py                        # everything in RAW_PDFS_DIR
+python scripts/ingest.py --pdf real_pdfs/x.pdf  # a single file
+python scripts/ingest.py --reset --limit 5      # wipe, then ingest the first 5
+python scripts/ingest.py --offset 100 --limit 50
+python scripts/ingest.py --concurrency 4        # parallel PDF parsing
+python scripts/ingest.py --verify               # manifest vs. stores drift check
 ```
-*Builds the BM25 sparse index and serializes it to `bm25_index.pkl`*
 
-**Step 4 — Run the API Server**
+Ingestion is idempotent and resumable:
+
+- Files are keyed in the manifest by **path relative to the corpus root** plus a
+  SHA-256 of their contents, so an unchanged file is skipped and the manifest
+  stays portable between a host and a container.
+- The manifest records **which collection and embedding model** it was built
+  against. Pointing at a different collection or model discards it and re-indexes
+  everything — otherwise the run would skip files whose vectors do not exist.
+- Re-ingesting a changed file first deletes that file's existing vectors and
+  keyword chunks, so nothing is duplicated.
+- Progress is written atomically after every file; an interrupted run resumes
+  where it stopped.
+
+PDF parsing is the bottleneck and is parallelised with `--concurrency`; indexing
+itself stays serial because the embedding model and vector store are not
+thread-safe.
+
+## API
+
+| Endpoint | Auth | Description |
+|---|---|---|
+| `POST /chat` | required | Answer a question, returning citations. |
+| `POST /chat/stream` | required | Same, streamed as Server-Sent Events. |
+| `GET /health/live` | public | Process liveness. |
+| `GET /health/ready` | public | Probes Qdrant, embeddings, the LLM client, the keyword index, the reranker, and Redis. Returns `503` when a **required** dependency is down. |
+| `GET /metrics` | required | Prometheus exposition, including semantic-cache statistics. |
+| `GET /` | public | Service descriptor. |
+
+`/health/ready` distinguishes required dependencies (Qdrant, embeddings, the
+generator) from optional ones (keyword index, reranker, cache). Losing an optional
+dependency degrades quality but keeps the service in rotation; losing a required
+one takes it out.
+
+Errors are returned as `{"detail": "..."}` with `401` (auth), `422` (validation),
+`429` (rate limit, with `Retry-After`), or `500`. Internal error text is never
+leaked — it goes to the logs, correlated by the `X-Request-ID` response header.
+
+## Deployment
+
 ```bash
-uvicorn api:app --workers 1
+cp .env.example .env      # then edit: set API_KEYS, provider keys, CORS_ORIGINS
+docker compose up -d --build
+docker compose --profile tools run --rm ingest        # build the indexes
+curl -fsS localhost:8000/health/ready
 ```
-*Starts the FastAPI server on `http://localhost:8000`. Use `--workers 1` — local Qdrant does not support multi-process concurrent access.*
 
-**Step 5 — Evaluate**
+The stack runs `api`, `qdrant`, `redis`, `frontend` (Caddy), and a one-shot
+`ingest` job behind the `tools` profile.
+
+Additional notes for a real deployment:
+
+- **TLS.** The frontend container terminates plain HTTP on port 80. Put it behind
+  a TLS terminator (Caddy automatic HTTPS, nginx, or a cloud load balancer), or
+  add a domain to `frontend/Caddyfile` and let Caddy issue a certificate.
+- **Stop publishing the API port.** `API_PORT=8000` is published for debugging.
+  Remove that mapping to force all traffic through the proxy.
+- **Secrets.** `.env` is gitignored; only `.env.example` is committed. Use your
+  platform's secret store (Docker secrets, Vault, SOPS) to inject values in
+  production rather than shipping a `.env` file.
+- **Back up the volumes.** `qdrant_data` (vectors), `redis_data` (cache — safe to
+  lose), and `rag_data` (parent document store + manifest + BM25 index).
+- **Model warmth.** The embedding model is baked into the image at build time, so
+  containers do not need network access to Hugging Face at runtime.
+
+## Quality gates
+
 ```bash
-python production_eval.py
-```
-*Runs RAGAS evaluation and exports scores to `ragas_evaluation_results.csv`*
-
----
-
-## 📁 Project Structure
-
-```
-finance-rag/
-├── api.py                  # FastAPI server (endpoints, dependency injection)
-├── core.py                 # RAG pipeline (retrieval, reranking, generation)
-├── retriever_setup.py      # PDF ingestion → Qdrant + doc store
-├── build_bm25.py           # BM25 sparse index builder
-├── storage.py              # Custom pickle-based document store
-├── download_pdfs.py        # ArXiv dataset downloader
-├── download_indexes.py     # HuggingFace index downloader (for deployment)
-├── production_eval.py      # RAGAS evaluation runner
-├── frontend/               # React + Vite chat UI
-├── SYSTEM_ARCHITECTURE.md  # Enterprise architecture design proposal
-└── RAG_Evaluation_Report.md
+ruff check .            # lint
+ruff format --check .   # formatting
+mypy                    # types
+pytest -q               # tests
 ```
 
----
+`make check` runs all four. The test suite needs no network: every external client
+is stubbed.
 
-*For the full enterprise scaling design (AWS S3 → SQS → Kubernetes → Qdrant Cloud), cost projections, and security architecture, see [SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md).*
+### Evaluating retrieval
+
+```bash
+cp tests/eval/golden_queries.example.json tests/eval/golden_queries.json
+# fill in verified relevant_sources, then:
+python tests/eval/run_eval.py --k 5
+```
+
+Reports `recall@k`, `MRR`, and the MRR lift from reranking. It runs offline against
+the live index, so it is deterministic and cheap enough to run after each
+ingestion. Queries whose ground truth you have not verified are reported as
+skipped rather than counted.
+
+## Project layout
+
+```
+src/
+  api/            FastAPI app, routes, schemas, auth/rate-limit deps, health probing
+  cache/          Redis semantic cache
+  config/         validated settings
+  core/           pipeline orchestration
+  ingestion/      layout-aware loader and parent/child chunkers
+  llm/            generation and reranking
+  observability/  structured logging, request IDs, Prometheus metrics
+  retrieval/      Qdrant vector store, BM25 index, hybrid fusion
+scripts/ingest.py CLI ingestion pipeline
+frontend/         React + Vite SPA served by Caddy
+tests/            unit and API tests
+tests/eval/       retrieval evaluation harness
+reference/ragflow upstream RAGFlow assets kept for reference only
+```
+
+## Attribution
+
+The retrieval design follows patterns established by
+[RAGFlow](https://github.com/infiniflow/ragflow) (Apache-2.0):
+
+- **Layout-aware parsing** — `pymupdf4llm` runs the same class of ONNX document
+  layout recognition and table structure recognition models RAGFlow's DeepDoc uses.
+- **Parent/child chunking** — large sections are kept for generation context while
+  small child chunks are embedded and matched, so retrieval stays precise without
+  starving the model of context.
+- **Multiple recall** — keyword and dense candidates are fused rather than picking
+  one, which matters for finance text where exact terms (ticker symbols, model
+  names, Greek letters) carry meaning that embeddings blur.
+- **Fused reranking** — a cross-encoder rescores the fused set before generation.
+
+RAGFlow itself is not deployed. Its compose file and environment template are kept
+under `reference/ragflow/` purely as reference and are not part of this stack.
+
+## License
+
+See the repository for licensing details.

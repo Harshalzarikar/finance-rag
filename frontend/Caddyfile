@@ -1,0 +1,16 @@
+# Serves the built SPA and reverse-proxies the API so the browser talks to a
+# single origin (no CORS, no separate API URL to configure).
+:80 {
+	encode gzip
+
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy api:8000
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

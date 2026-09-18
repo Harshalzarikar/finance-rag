@@ -1,0 +1,26 @@
+{
+  "_README": [
+    "Retrieval evaluation set. Copy this file to `golden_queries.json` (next to it)",
+    "and replace the entries with questions whose answers and source documents you",
+    "have verified.",
+    "",
+    "How to build an entry:",
+    "  1. Ask a question you already know the answer to via POST /chat.",
+    "  2. Read the citation in the response and confirm it really is the right paper.",
+    "  3. Record the question and that document's filename under relevant_sources.",
+    "",
+    "`relevant_sources` must match the `source` values reported by the API, i.e. the",
+    "PDF basenames (for example \"0704.2244v13.pdf\"). Entries with an empty",
+    "relevant_sources list are reported as skipped, not failed."
+  ],
+  "queries": [
+    {
+      "query": "What are the main results of this paper?",
+      "relevant_sources": ["0704.2244v13.pdf"]
+    },
+    {
+      "query": "How is stochastic volatility modelled here?",
+      "relevant_sources": []
+    }
+  ]
+}

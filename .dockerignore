@@ -1,0 +1,33 @@
+# Version control and local tooling
+.git
+.gitignore
+.github
+.commandcode
+.venv
+venv
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Large / generated data — built inside the image or on a mounted volume
+real_pdfs/
+doc_store_local/
+qdrant_db_local/
+*.pkl
+ingestion_manifest.json
+documents/
+*.log
+__pycache__/
+*.py[cod]
+
+# Frontend build output and dependencies
+frontend/node_modules
+frontend/dist
+frontend/.vite
+
+# Tests and docs are not needed at runtime
+tests/
+*.md
+!requirements*.txt
