@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class CohereReranker:
     """Reranks retrieved documents, degrading gracefully when the API is unavailable."""
 
-    def __init__(self, api_key: str | None, model: str, enabled: bool = True) -> None:
+    def __init__(self, api_key: str | None, model: str, enabled: bool = True, timeout: int = 30) -> None:
         self.model = model
         self.client: Any | None = None
 
@@ -27,8 +27,8 @@ class CohereReranker:
             logger.warning("COHERE_API_KEY is not set — reranking is disabled.")
         else:
             try:
-                self.client = cohere.ClientV2(api_key=api_key)
-                logger.info("Cohere reranker ready (%s).", model)
+                self.client = cohere.ClientV2(api_key=api_key, timeout=timeout)
+                logger.info("Cohere reranker ready (%s, timeout=%ds).", model, timeout)
             except Exception as exc:  # noqa: BLE001 - a bad key must not take the API down
                 logger.error("Could not initialize the Cohere client (%s) — reranking is disabled.", exc)
 

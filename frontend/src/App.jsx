@@ -7,14 +7,11 @@ import './index.css';
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const API_KEY = import.meta.env.VITE_API_KEY || '';
 
-const WELCOME = {
-  id: 1,
-  role: 'bot',
-  content:
-    'Welcome to the Quantitative Finance AI. Ask me any question based on the indexed arXiv quantitative finance research corpus.',
-  sources: [],
-  cached: false,
-};
+const SUGGESTIONS = [
+  'What is the minimum probability of lifetime ruin?',
+  'Explain the Black-Scholes model and its limitations.',
+  'How does stochastic volatility affect options pricing?',
+];
 
 class ApiError extends Error {
   constructor(message, status) {
@@ -78,8 +75,70 @@ async function streamAnswer(query, onEvent, signal) {
   }
 }
 
+/* ── SVG Icons ── */
+
+function SendIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="22" y1="2" x2="11" y2="13" />
+      <polygon points="22 2 15 22 11 13 2 9 22 2" />
+    </svg>
+  );
+}
+
+function DocIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="16" y1="13" x2="8" y2="13" />
+      <line x1="16" y1="17" x2="8" y2="17" />
+      <polyline points="10 9 9 9 8 9" />
+    </svg>
+  );
+}
+
+function SparkleIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2L14.09 8.26L20 9.27L15.55 13.97L16.91 20L12 16.9L7.09 20L8.45 13.97L4 9.27L9.91 8.26L12 2Z" />
+    </svg>
+  );
+}
+
+function ShieldCheckIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      <path d="M9 12l2 2 4-4"/>
+    </svg>
+  );
+}
+
+function ChevronIcon({ open }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{
+        transition: 'transform 200ms cubic-bezier(0.22, 1, 0.36, 1)',
+        transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
+      }}
+    >
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
+  );
+}
+
+
 function App() {
-  const [messages, setMessages] = useState([WELCOME]);
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef(null);
@@ -88,10 +147,8 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    const query = input.trim();
-    if (!query || isLoading) return;
+  const askQuestion = async (query) => {
+    if (!query.trim() || isLoading) return;
 
     const userMessage = { id: Date.now(), role: 'user', content: query, sources: [] };
     const botId = Date.now() + 1;
@@ -99,7 +156,7 @@ function App() {
     setMessages((prev) => [
       ...prev,
       userMessage,
-      { id: botId, role: 'bot', content: '', sources: [], cached: false },
+      { id: botId, role: 'bot', content: '', sources: [], cached: false, confidenceScore: null, faithfulnessPassed: null },
     ]);
     setInput('');
     setIsLoading(true);
@@ -115,6 +172,12 @@ function App() {
           patch((message) => ({ ...message, content: message.content + event.value }));
         } else if (event.type === 'error') {
           patch((message) => ({ ...message, content: event.detail ?? 'The answer could not be generated.' }));
+        } else if (event.type === 'done') {
+          patch((message) => ({
+            ...message,
+            confidenceScore: event.confidence_score !== undefined ? event.confidence_score : message.confidenceScore,
+            faithfulnessPassed: event.faithfulness_passed !== undefined ? event.faithfulness_passed : message.faithfulnessPassed
+          }));
         }
       });
     } catch (error) {
@@ -125,22 +188,95 @@ function App() {
     }
   };
 
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    askQuestion(input);
+  };
+
+  const isEmpty = messages.length === 0;
+
   return (
     <div className="app-container">
-      <div className="header">
-        <h1>QuantRAG AI</h1>
-        <p>Enterprise Mathematical Finance &amp; Research Intelligence</p>
+      {/* ── Header ── */}
+      <header className="header">
+        <div className="brand-lockup">
+          <span className="eyebrow">Research desk</span>
+          <h1>QuantRAG <span>AI</span></h1>
+        </div>
+        <div className="header-meta">
+          <span className="status-dot" aria-hidden="true" />
+          <span>Indexed finance corpus</span>
+        </div>
+      </header>
+
+      {/* ── Intro section ── */}
+      <div className="workspace-intro">
+        <div>
+          <p className="section-kicker">Evidence-led answers</p>
+          <h2>Ask the literature a sharper question.</h2>
+        </div>
+        <p className="intro-note">
+          Explore quantitative finance research with page-level provenance and citations.
+        </p>
       </div>
 
-      <div className="chat-container glass-panel">
+      {/* ── Chat Panel ── */}
+      <div className="chat-container">
         <div className="message-list">
+          {isEmpty && (
+            <div className="empty-state">
+              <h2>How can I help you today?</h2>
+              <p>
+                Ask any question about the indexed arXiv quantitative finance research corpus.
+                Answers are grounded in retrieved passages with full citations.
+              </p>
+              <div className="empty-label">
+                <SparkleIcon /> Suggested questions
+              </div>
+              <div className="suggestions">
+                {SUGGESTIONS.map((s) => (
+                  <button
+                    key={s}
+                    className="suggestion"
+                    onClick={() => askQuestion(s)}
+                    type="button"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {messages.map((message) => (
             <div key={message.id} className={`message ${message.role}`}>
               <div className="message-content">
                 {message.role === 'bot' ? <ReactMarkdown>{message.content}</ReactMarkdown> : message.content}
               </div>
 
-              {message.cached && <span className="cached-badge">cached</span>}
+              {message.role === 'bot' && message.content && (
+                <div className="telemetry-badges">
+                  {message.cached && <span className="telemetry-badge cached">⚡ Cached</span>}
+                  
+                  {message.confidenceScore !== null && (
+                    <span className={`telemetry-badge confidence ${message.confidenceScore >= 0.8 ? 'high' : message.confidenceScore >= 0.5 ? 'medium' : 'low'}`}>
+                      Confidence: {message.confidenceScore >= 0.8 ? 'High' : message.confidenceScore >= 0.5 ? 'Medium' : 'Low'}
+                    </span>
+                  )}
+                  
+                  {message.faithfulnessPassed === true && (
+                    <span className="telemetry-badge verified">
+                      <ShieldCheckIcon /> Verified
+                    </span>
+                  )}
+
+                  {message.faithfulnessPassed === false && (
+                    <span className="telemetry-badge unverified">
+                      ⚠️ Guard Blocked
+                    </span>
+                  )}
+                </div>
+              )}
 
               {message.sources?.length > 0 && <SourceDropdown sources={message.sources} />}
             </div>
@@ -149,26 +285,30 @@ function App() {
           {isLoading && messages[messages.length - 1]?.content === '' && (
             <div className="message bot">
               <div className="typing-indicator">
-                <div className="dot"></div>
-                <div className="dot"></div>
-                <div className="dot"></div>
+                <div className="dot" />
+                <div className="dot" />
+                <div className="dot" />
               </div>
             </div>
           )}
           <div ref={messagesEndRef} />
         </div>
 
+        {/* ── Composer ── */}
         <div className="input-area">
           <form className="input-form" onSubmit={handleSubmit}>
             <input
               type="text"
+              id="chat-input"
               className="chat-input"
               placeholder="Ask about stochastic volatility, Heston models, options pricing..."
               value={input}
               onChange={(event) => setInput(event.target.value)}
               disabled={isLoading}
+              autoComplete="off"
             />
-            <button type="submit" className="send-button" disabled={!input.trim() || isLoading}>
+            <button type="submit" id="send-button" className="send-button" disabled={!input.trim() || isLoading}>
+              <SendIcon />
               Send
             </button>
           </form>
@@ -178,25 +318,38 @@ function App() {
   );
 }
 
+
 function SourceDropdown({ sources }) {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
     <div className="sources-container">
-      <button className="source-toggle" onClick={() => setIsOpen(!isOpen)} type="button">
-        {isOpen ? '▼' : '▶'} View {sources.length} Citations
+      <button
+        className="source-toggle"
+        onClick={() => setIsOpen(!isOpen)}
+        type="button"
+        aria-expanded={isOpen}
+      >
+        <ChevronIcon open={isOpen} />
+        <DocIcon />
+        {isOpen ? 'Hide' : 'View'} {sources.length} {sources.length === 1 ? 'source' : 'sources'}
       </button>
 
       {isOpen && (
         <div className="source-cards">
           {sources.map((source, index) => (
             <div key={`${source.source}-${source.page ?? index}`} className="source-card">
-              <span className="source-title">
-                {source.source}
-                {source.page ? ` · p.${source.page}` : ''}
-                {typeof source.score === 'number' ? ` · ${source.score.toFixed(2)}` : ''}
+              <span className="source-index">{String(index + 1).padStart(2, '0')}</span>
+              <span className="source-body">
+                <span className="source-title">
+                  {source.source}
+                  <span className="source-meta">{source.page ? `Page ${source.page}` : 'Page unavailable'}</span>
+                  {typeof source.score === 'number' && (
+                    <span className="source-score">Match {source.score.toFixed(2)}</span>
+                  )}
+                </span>
+                <span className="source-text">{source.snippet}</span>
               </span>
-              <span className="source-text">{source.snippet}</span>
             </div>
           ))}
         </div>

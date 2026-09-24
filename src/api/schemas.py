@@ -47,6 +47,8 @@ class ChatResponse(BaseModel):
     cached: bool = Field(False, description="True when served from the semantic cache")
     cache_similarity: float | None = Field(None, description="Similarity of the matched cached query")
     request_id: str | None = Field(None, description="Correlation ID for tracing this request")
+    confidence_score: float | None = Field(None, description="Answer confidence (0-1) derived from reranker scores")
+    faithfulness_passed: bool = Field(True, description="True if the answer passed the post-generation entailment guard")
 
 
 class DependencyStatus(BaseModel):

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from typing import Any
 
 import anyio.to_thread
@@ -30,6 +31,8 @@ def _to_response(result: dict[str, Any]) -> ChatResponse:
         cached=result.get("cached", False),
         cache_similarity=result.get("cache_similarity"),
         request_id=get_request_id(),
+        confidence_score=result.get("confidence_score"),
+        faithfulness_passed=result.get("faithfulness_passed", True),
     )
 
 
@@ -62,15 +65,34 @@ async def chat_stream(
     pipeline: RAGPipeline = Depends(get_pipeline),
     _: None = Depends(authorize),
 ) -> StreamingResponse:
-    """Stream the answer as Server-Sent Events, emitting citations first."""
+    """Stream the answer as Server-Sent Events, emitting citations first.
 
-    def event_stream() -> Iterator[str]:
-        try:
-            for event in pipeline.stream(payload.query, payload.top_k_rerank):
-                yield _sse(event)
-        except Exception:  # noqa: BLE001 - headers are already sent, so report in-band
-            logger.exception("Streaming chat request failed")
-            yield _sse({"type": "error", "detail": "Failed to generate an answer."})
+    The pipeline does blocking embedding, HTTP, and LLM work. We run the
+    blocking iterator in a worker thread and ferry events back through a
+    queue so the async event loop is never stalled.
+    """
+
+    async def event_stream() -> AsyncIterator[str]:
+        queue: asyncio.Queue[str | None] = asyncio.Queue()
+
+        def _produce() -> None:
+            try:
+                for event in pipeline.stream(payload.query, payload.top_k_rerank):
+                    queue.put_nowait(_sse(event))
+            except Exception:  # noqa: BLE001 - headers are already sent, so report in-band
+                logger.exception("Streaming chat request failed")
+                queue.put_nowait(_sse({"type": "error", "detail": "Failed to generate an answer."}))
+            finally:
+                queue.put_nowait(None)  # sentinel
+
+        loop = asyncio.get_running_loop()
+        loop.run_in_executor(None, _produce)
+
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            yield item
 
     return StreamingResponse(
         event_stream(),

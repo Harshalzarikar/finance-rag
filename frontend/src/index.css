@@ -1,74 +1,117 @@
-@import url('https://fonts.googleapis.com/css2?family=Spectral:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
 
 /* ==========================================================================
-   Design tokens
+   Design Tokens — Premium White & Gold
 
-   Direction: quiet editorial. Warm paper, deep warm ink, gold used as a precise
-   accent rather than a coat of paint. Built in OKLCH so equal lightness steps
-   read as equal brightness.
-
-   Two golds exist because one cannot do both jobs on a white ground:
-     --gold     a light gold for FILLS, always with dark ink on top
-     --bronze   a deep gold for TEXT and rules, dark enough to be readable
-   Gold text on white measures ~2:1 and is never used.
+   A luxury editorial palette: ivory whites, warm golds, and deep bronze.
+   Every surface carries warmth; gold is used deliberately for emphasis,
+   action, and provenance.
    ========================================================================== */
 
 :root {
-  /* Surfaces — never pure white or pure grey; every neutral carries a trace
-     of the gold hue so the paper feels authored rather than empty. */
-  --canvas: oklch(0.985 0.006 84);
-  --surface: oklch(1 0 0);
-  --surface-sunken: oklch(0.968 0.009 84);
-  --surface-gold: oklch(0.958 0.032 88);
+  /* ── Surfaces ── */
+  --canvas:          #FAFAF6;
+  --surface:         #FFFFFF;
+  --surface-elevated:#FFFFFF;
+  --surface-sunken:  #F5F4EF;
+  --surface-gold:    #FBF6EB;
+  --surface-gold-strong: #F7EDCF;
 
-  /* Ink — warm near-black, not #000 */
-  --ink: oklch(0.24 0.016 74);
-  --ink-muted: oklch(0.50 0.014 78);
-  --ink-faint: oklch(0.58 0.014 80);
-  --ink-inverse: oklch(0.22 0.02 74);
+  /* ── Ink ── */
+  --ink:             #1A1814;
+  --ink-secondary:   #3D382E;
+  --ink-muted:       #6B6355;
+  --ink-faint:       #9B9484;
+  --ink-inverse:     #FAFAF6;
 
-  /* Gold — the accent, reserved for action, focus, and provenance */
-  --gold: oklch(0.80 0.125 86);
-  --gold-strong: oklch(0.74 0.135 82);
-  --bronze: oklch(0.50 0.098 76);
-  --bronze-strong: oklch(0.41 0.088 74);
+  /* ── Gold spectrum ── */
+  --gold-50:         #FDF9EE;
+  --gold-100:        #FBF0D1;
+  --gold-200:        #F5DDA0;
+  --gold-300:        #EFC96E;
+  --gold-400:        #E8B33E;
+  --gold-500:        #D4982B;
+  --gold-600:        #B87D20;
+  --gold-700:        #96601C;
+  --gold-800:        #7A4E1E;
+  --gold-900:        #654020;
 
-  /* Rules */
-  --rule: oklch(0.905 0.010 84);
-  --rule-strong: oklch(0.84 0.016 84);
-  --rule-gold: oklch(0.80 0.125 86 / 0.5);
+  /* Named gold aliases */
+  --gold:            #D4A843;
+  --gold-light:      #E8C877;
+  --gold-bright:     #F0D68A;
+  --gold-deep:       #B8912A;
+  --gold-dark:       #96701C;
+  --bronze:          #8B6914;
+  --bronze-strong:   #6B4F0E;
 
-  /* State */
-  --danger: oklch(0.47 0.16 25);
-  --danger-surface: oklch(0.966 0.020 25);
-  --danger-rule: oklch(0.86 0.055 25);
+  /* ── Gradients ── */
+  --gradient-gold:   linear-gradient(135deg, #E8C877 0%, #D4A843 50%, #B8912A 100%);
+  --gradient-gold-soft: linear-gradient(135deg, #FBF0D1 0%, #F5DDA0 50%, #EFC96E 100%);
+  --gradient-gold-shimmer: linear-gradient(90deg, transparent 0%, rgba(212, 168, 67, 0.08) 50%, transparent 100%);
+  --gradient-surface: linear-gradient(180deg, #FFFFFF 0%, #FAFAF6 100%);
 
-  /* Focus */
-  --focus-ring: oklch(0.62 0.13 80);
+  /* ── Borders & rules ── */
+  --rule:            #EEEBE3;
+  --rule-strong:     #DDD8CC;
+  --rule-gold:       rgba(212, 168, 67, 0.30);
+  --rule-gold-strong: rgba(212, 168, 67, 0.55);
 
-  /* Type */
-  --font-display: 'Spectral', ui-serif, Georgia, 'Times New Roman', serif;
-  --font-ui: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  /* ── Shadows ── */
+  --shadow-sm:       0 1px 2px rgba(26, 24, 20, 0.04), 0 1px 3px rgba(26, 24, 20, 0.06);
+  --shadow-md:       0 4px 6px rgba(26, 24, 20, 0.04), 0 2px 4px rgba(26, 24, 20, 0.06);
+  --shadow-lg:       0 10px 25px rgba(26, 24, 20, 0.06), 0 4px 10px rgba(26, 24, 20, 0.04);
+  --shadow-xl:       0 20px 40px rgba(26, 24, 20, 0.08), 0 8px 16px rgba(26, 24, 20, 0.04);
+  --shadow-gold:     0 4px 16px rgba(212, 168, 67, 0.18), 0 2px 4px rgba(212, 168, 67, 0.10);
+  --shadow-gold-lg:  0 8px 32px rgba(212, 168, 67, 0.22), 0 4px 8px rgba(212, 168, 67, 0.12);
 
-  /* Spacing — 1-4-9 rhythm (4 / 16 / 36), kept to a single scale */
-  --s1: 4px;
-  --s2: 8px;
-  --s3: 12px;
-  --s4: 16px;
-  --s6: 24px;
-  --s9: 36px;
+  /* ── State ── */
+  --danger:          #C53030;
+  --danger-surface:  #FFF5F5;
+  --danger-rule:     #FED7D7;
+  --success:         #38A169;
+
+  /* ── Focus ── */
+  --focus-ring:      rgba(212, 168, 67, 0.50);
+
+  /* ── Type ── */
+  --font-display:    'Playfair Display', Georgia, 'Times New Roman', serif;
+  --font-ui:         'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  /* ── Spacing (4px base) ── */
+  --s1:  4px;
+  --s2:  8px;
+  --s3:  12px;
+  --s4:  16px;
+  --s5:  20px;
+  --s6:  24px;
+  --s8:  32px;
+  --s9:  36px;
+  --s10: 40px;
   --s12: 48px;
+  --s16: 64px;
 
-  --radius: 10px;
-  --radius-sm: 6px;
-  --measure: 68ch;
+  /* ── Layout ── */
+  --radius-xs:  4px;
+  --radius-sm:  8px;
+  --radius:     12px;
+  --radius-lg:  16px;
+  --radius-xl:  20px;
+  --radius-2xl: 24px;
+  --measure:    72ch;
 
   color-scheme: light;
   background-color: var(--canvas);
   color: var(--ink);
 }
 
-* {
+/* ==========================================================================
+   Reset & Base
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
@@ -77,10 +120,12 @@ body {
   min-height: 100vh;
   background-color: var(--canvas);
   font-family: var(--font-ui);
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  overflow-x: hidden;
 }
 
 #root {
@@ -90,7 +135,7 @@ body {
 }
 
 /* ==========================================================================
-   Shell
+   App Shell
    ========================================================================== */
 
 .app-container {
@@ -98,56 +143,150 @@ body {
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 1120px;
+  max-width: 960px;
   margin: 0 auto;
-  padding: 0 var(--s4);
+  padding: 0 var(--s6);
+  position: relative;
 }
 
-/* Top bar rather than a centred hero: the product is an instrument, and an
-   instrument puts its name in the corner and gets out of the way. */
+/* ==========================================================================
+   Header — Elegant top bar with gold accent line
+   ========================================================================== */
+
 .header {
   display: flex;
-  align-items: baseline;
-  gap: var(--s3);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
   flex-wrap: wrap;
-  padding: var(--s6) 0 var(--s4);
-  border-bottom: 1px solid var(--rule-gold);
+  padding: var(--s6) 0;
+  position: relative;
+}
+
+/* Gold accent line under the header */
+.header::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: -var(--s6);
+  right: -var(--s6);
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--gradient-gold);
+  opacity: 0.7;
+}
+
+.brand-lockup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.eyebrow,
+.section-kicker {
+  margin: 0;
+  color: var(--gold-deep);
+  font-family: var(--font-ui);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
 }
 
 .header h1 {
   font-family: var(--font-display);
-  font-size: 1.5rem;
-  font-weight: 600;
+  font-size: 1.625rem;
+  font-weight: 700;
   letter-spacing: -0.01em;
   margin: 0;
   color: var(--ink);
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--s2);
 }
 
-/* Gold used as a mark, not as text — a small filled rule is readable where
-   gold letterforms would not be. */
-.header h1::before {
-  content: '';
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-  background: var(--gold);
-  border: 1px solid var(--bronze);
-  transform: translateY(-1px);
-  flex: none;
+.header h1 span {
+  background: var(--gradient-gold);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 500;
+  font-style: italic;
 }
 
-.header p {
-  margin: 0;
-  font-size: 0.8125rem;
+/* Small gold diamond mark before the title */
+.header h1::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  background: var(--gold);
+  border-radius: 2px;
+  transform: rotate(45deg);
+  flex-shrink: 0;
+  box-shadow: 0 0 8px rgba(212, 168, 67, 0.4);
+}
+
+.header-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
   color: var(--ink-muted);
-  letter-spacing: 0.01em;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 3px rgba(56, 161, 105, 0.20);
+  animation: status-pulse 2.5s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(56, 161, 105, 0.20); }
+  50%      { box-shadow: 0 0 0 5px rgba(56, 161, 105, 0.10); }
 }
 
 /* ==========================================================================
-   Conversation
+   Workspace Intro — Hero area
+   ========================================================================== */
+
+.workspace-intro {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s8);
+  padding: var(--s10) 0 var(--s6);
+}
+
+.workspace-intro h2 {
+  margin: var(--s2) 0 0;
+  max-width: 22ch;
+  font-family: var(--font-display);
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  font-weight: 600;
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.intro-note {
+  max-width: 30ch;
+  margin: 0 0 var(--s1);
+  color: var(--ink-muted);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1.55;
+  text-align: right;
+}
+
+/* ==========================================================================
+   Chat Container — Glass panel with gold trim
    ========================================================================== */
 
 .chat-container {
@@ -155,46 +294,100 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  background: var(--surface);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  border: 1px solid var(--rule);
+  border-bottom: none;
+  position: relative;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
 }
+
+/* Gold top accent on the chat panel */
+.chat-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--gradient-gold);
+  z-index: 1;
+}
+
+/* Subtle shimmer effect that plays once */
+.chat-container::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(212, 168, 67, 0.03) 45%,
+    rgba(212, 168, 67, 0.06) 50%,
+    rgba(212, 168, 67, 0.03) 55%,
+    transparent 100%
+  );
+  animation: shimmer-once 2s ease-in-out 0.5s forwards;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes shimmer-once {
+  0%   { left: -100%; }
+  100% { left: 100%; }
+}
+
+/* ==========================================================================
+   Message List
+   ========================================================================== */
 
 .message-list {
   flex: 1;
   overflow-y: auto;
-  padding: var(--s9) 0 var(--s6);
+  padding: var(--s8) var(--s6) var(--s6);
   display: flex;
   flex-direction: column;
   gap: var(--s6);
   scrollbar-width: thin;
   scrollbar-color: var(--rule-strong) transparent;
+  position: relative;
+  z-index: 1;
 }
 
 .message-list::-webkit-scrollbar {
-  width: 10px;
+  width: 8px;
 }
 .message-list::-webkit-scrollbar-thumb {
   background: var(--rule-strong);
   border-radius: 999px;
-  border: 3px solid var(--canvas);
+  border: 2px solid var(--surface);
 }
 .message-list::-webkit-scrollbar-track {
   background: transparent;
 }
 
+/* ==========================================================================
+   Messages
+   ========================================================================== */
+
 .message {
   display: flex;
   flex-direction: column;
-  animation: message-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: message-in 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* Three-beat entrance: arrive small, overshoot slightly, settle. */
 @keyframes message-in {
   0% {
     opacity: 0;
-    transform: translateY(6px) scale(0.995);
+    transform: translateY(10px) scale(0.98);
   }
   60% {
     opacity: 1;
-    transform: translateY(-1px) scale(1.002);
+    transform: translateY(-2px) scale(1.003);
   }
   100% {
     opacity: 1;
@@ -213,24 +406,28 @@ body {
   width: 100%;
 }
 
+/* ── User bubble ── */
 .message.user .message-content {
-  background: var(--surface-gold);
-  border: 1px solid var(--rule-gold);
-  border-radius: var(--radius) var(--radius) var(--radius-sm) var(--radius);
-  padding: var(--s3) var(--s4);
+  background: var(--gradient-gold-soft);
+  border: 1px solid var(--rule-gold-strong);
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-xs) var(--radius-lg);
+  padding: var(--s3) var(--s5);
   font-size: 0.9375rem;
   color: var(--ink);
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  line-height: 1.55;
 }
 
-/* Bot answers are set as prose, not in a bubble: the words are the object, and
-   a container around them adds nothing. */
+/* ── Bot response — open prose style ── */
 .message.bot .message-content {
-  padding: 0;
-  font-size: 1rem;
-  line-height: 1.7;
-  color: var(--ink);
+  padding: var(--s1) 0;
+  font-size: 0.9375rem;
+  line-height: 1.75;
+  color: var(--ink-secondary);
 }
 
+/* ── Prose typography inside bot messages ── */
 .message-content p {
   margin: 0 0 var(--s3);
 }
@@ -244,9 +441,13 @@ body {
   font-family: var(--font-display);
   font-weight: 600;
   line-height: 1.3;
-  margin: var(--s4) 0 var(--s2);
-  font-size: 1.0625rem;
+  margin: var(--s5) 0 var(--s2);
+  color: var(--ink);
 }
+.message-content h1 { font-size: 1.25rem; }
+.message-content h2 { font-size: 1.125rem; }
+.message-content h3 { font-size: 1.0625rem; }
+
 .message-content h1:first-child,
 .message-content h2:first-child,
 .message-content h3:first-child {
@@ -262,56 +463,63 @@ body {
   margin-bottom: var(--s1);
 }
 .message-content li::marker {
-  color: var(--bronze);
+  color: var(--gold-deep);
 }
 
 .message-content strong {
   font-weight: 600;
-  color: var(--bronze-strong);
+  color: var(--ink);
 }
 
 .message-content a {
-  color: var(--bronze);
-  text-underline-offset: 2px;
+  color: var(--gold-dark);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--rule-gold);
+  transition: text-decoration-color 150ms ease;
 }
 .message-content a:hover {
-  color: var(--bronze-strong);
+  text-decoration-color: var(--gold-deep);
 }
 
 .message-content code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.875em;
+  font-size: 0.85em;
   background: var(--surface-sunken);
   border: 1px solid var(--rule);
-  border-radius: var(--radius-sm);
-  padding: 0.1em 0.35em;
+  border-radius: var(--radius-xs);
+  padding: 0.15em 0.4em;
+  color: var(--bronze-strong);
 }
 
 .message-content pre {
   background: var(--surface-sunken);
   border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  padding: var(--s3);
+  border-radius: var(--radius-sm);
+  padding: var(--s4);
   overflow-x: auto;
+  font-size: 0.8125rem;
 }
 .message-content pre code {
   background: none;
   border: none;
   padding: 0;
+  color: var(--ink-secondary);
 }
 
 .message-content blockquote {
-  margin: var(--s3) 0;
-  padding-left: var(--s4);
-  border-left: 2px solid var(--gold);
+  margin: var(--s4) 0;
+  padding-left: var(--s5);
+  border-left: 3px solid var(--gold);
   color: var(--ink-muted);
+  font-style: italic;
 }
 
 .message-content table {
   width: 100%;
   border-collapse: collapse;
   margin: var(--s4) 0;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
 }
 .message-content th,
@@ -322,15 +530,15 @@ body {
 }
 .message-content th {
   font-weight: 600;
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ink-muted);
-  border-bottom-color: var(--rule-strong);
+  letter-spacing: 0.08em;
+  color: var(--gold-deep);
+  border-bottom-color: var(--rule-gold);
 }
 
 /* ==========================================================================
-   Provenance
+   Sources / Provenance
    ========================================================================== */
 
 .sources-container {
@@ -341,47 +549,49 @@ body {
   display: inline-flex;
   align-items: center;
   gap: var(--s2);
-  min-height: 44px; /* touch target */
-  padding: 0 var(--s2);
+  min-height: 40px;
+  padding: var(--s1) var(--s3);
   margin-left: calc(var(--s2) * -1);
   background: none;
-  border: none;
+  border: 1px solid transparent;
   font-family: var(--font-ui);
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--bronze);
+  color: var(--gold-deep);
   cursor: pointer;
   border-radius: var(--radius-sm);
-  transition: color 140ms ease;
+  transition: all 160ms ease;
 }
 .source-toggle:hover {
   color: var(--bronze-strong);
+  background: var(--surface-gold);
+  border-color: var(--rule-gold);
 }
 .source-toggle .chevron {
-  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  display: inline-block;
+  font-size: 0.875rem;
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .source-toggle[aria-expanded='true'] .chevron {
   transform: rotate(90deg);
 }
 
-/* Styled as a reference list, which is what citations actually are in a
-   research tool. */
 .source-cards {
   list-style: none;
-  margin: var(--s2) 0 0;
+  margin: var(--s3) 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--rule);
-  animation: reveal 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  gap: var(--s2);
+  animation: reveal 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes reveal {
   from {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(-6px);
   }
   to {
     opacity: 1;
@@ -391,26 +601,34 @@ body {
 
 .source-card {
   display: grid;
-  grid-template-columns: 2.25rem 1fr;
-  gap: var(--s2);
-  padding: var(--s3) 0;
-  border-bottom: 1px solid var(--rule);
+  grid-template-columns: 2rem 1fr;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  border: 1px solid var(--rule);
   font-size: 0.8125rem;
+  transition: all 160ms ease;
+}
+.source-card:hover {
+  border-color: var(--rule-gold);
+  background: var(--surface-gold);
+  box-shadow: var(--shadow-sm);
 }
 
 .source-index {
   font-family: var(--font-display);
-  font-size: 0.9375rem;
-  font-weight: 500;
-  color: var(--bronze);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--gold-deep);
   font-variant-numeric: tabular-nums;
-  line-height: 1.4;
+  line-height: 1.5;
 }
 
 .source-body {
   display: flex;
   flex-direction: column;
-  gap: var(--s1);
+  gap: 2px;
   min-width: 0;
 }
 
@@ -421,26 +639,33 @@ body {
   gap: var(--s2);
   font-weight: 600;
   color: var(--ink);
+  font-size: 0.8125rem;
 }
 
 .source-meta {
-  font-size: 0.75rem;
-  font-weight: 400;
+  font-size: 0.6875rem;
+  font-weight: 500;
   color: var(--ink-muted);
   font-variant-numeric: tabular-nums;
 }
 
 .source-score {
-  font-size: 0.75rem;
-  color: var(--bronze);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--gold-deep);
   font-variant-numeric: tabular-nums;
+  background: var(--surface-gold);
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--rule-gold);
 }
 
 .source-text {
   color: var(--ink-muted);
-  line-height: 1.6;
+  font-size: 0.8125rem;
+  line-height: 1.55;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -451,35 +676,221 @@ body {
   align-items: center;
   gap: var(--s1);
   margin-top: var(--s2);
-  padding: 2px var(--s2);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  padding: 2px var(--s3);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--bronze);
+  color: var(--gold-deep);
   background: var(--surface-gold);
   border: 1px solid var(--rule-gold);
   border-radius: 999px;
 }
 
 /* ==========================================================================
-   Empty state — teaches the space instead of only greeting
+   Composer — Input area with gold accents
+   ========================================================================== */
+
+.input-area {
+  padding: var(--s4) var(--s6) var(--s6);
+  border-top: 1px solid var(--rule);
+  background: var(--gradient-surface);
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+}
+
+.input-form {
+  display: flex;
+  gap: var(--s3);
+  align-items: stretch;
+}
+
+.chat-input {
+  flex: 1;
+  min-width: 0;
+  height: 52px;
+  background: var(--surface);
+  border: 1.5px solid var(--rule-strong);
+  border-radius: var(--radius);
+  padding: 0 var(--s5);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 0.9375rem;
+  font-weight: 400;
+  transition: all 200ms ease;
+}
+
+.chat-input::placeholder {
+  color: var(--ink-faint);
+  font-weight: 400;
+}
+
+.chat-input:hover:not(:disabled) {
+  border-color: var(--rule-gold-strong);
+}
+
+.chat-input:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 4px var(--focus-ring);
+}
+
+.chat-input:disabled {
+  background: var(--surface-sunken);
+  color: var(--ink-faint);
+  cursor: not-allowed;
+}
+
+/* ── Send Button — Gold gradient with depth ── */
+.send-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  min-width: 120px;
+  height: 52px;
+  padding: 0 var(--s6);
+  font-family: var(--font-ui);
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--gradient-gold);
+  color: var(--ink-inverse);
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: all 200ms ease;
+  box-shadow: var(--shadow-gold);
+}
+
+/* Shine sweep on hover */
+.send-button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.25) 50%,
+    transparent 100%
+  );
+  transition: left 400ms ease;
+}
+.send-button:hover:not(:disabled)::before {
+  left: 100%;
+}
+
+.send-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-gold-lg);
+  filter: brightness(1.05);
+}
+
+.send-button:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: var(--shadow-gold);
+  filter: brightness(0.97);
+}
+
+.send-button:disabled {
+  background: var(--surface-sunken);
+  color: var(--ink-faint);
+  border: 1px solid var(--rule);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* ==========================================================================
+   Typing Indicator
+   ========================================================================== */
+
+.typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 44px;
+  padding: 0 var(--s5);
+  background: var(--surface-sunken);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius) var(--radius) var(--radius) var(--radius-xs);
+  width: fit-content;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  background: var(--gold);
+  border-radius: 50%;
+  animation: pulse 1.4s ease-in-out infinite both;
+}
+.dot:nth-child(1) {
+  animation-delay: 0s;
+}
+.dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.dot:nth-child(3) {
+  animation-delay: 0.30s;
+}
+
+@keyframes pulse {
+  0%, 80%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+/* ==========================================================================
+   Error State
+   ========================================================================== */
+
+.message.error .message-content {
+  background: var(--danger-surface);
+  border: 1px solid var(--danger-rule);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--radius-sm);
+  padding: var(--s3) var(--s5);
+  color: var(--ink);
+}
+
+.error-label {
+  display: block;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--danger);
+  margin-bottom: var(--s1);
+}
+
+/* ==========================================================================
+   Empty / Suggestion State
    ========================================================================== */
 
 .empty-state {
   margin: auto 0;
   padding: var(--s9) 0;
   max-width: var(--measure);
-  animation: message-in 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: message-in 400ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .empty-state h2 {
   font-family: var(--font-display);
   font-size: 1.75rem;
-  font-weight: 500;
+  font-weight: 600;
   line-height: 1.25;
   margin: 0 0 var(--s2);
-  letter-spacing: -0.015em;
 }
 
 .empty-state > p {
@@ -489,11 +900,11 @@ body {
 }
 
 .empty-label {
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--bronze);
+  color: var(--gold-deep);
   margin-bottom: var(--s3);
 }
 
@@ -506,185 +917,85 @@ body {
 .suggestion {
   text-align: left;
   font-family: var(--font-ui);
-  font-size: 0.9375rem;
-  color: var(--ink);
+  font-size: 0.875rem;
+  color: var(--ink-secondary);
   background: var(--surface);
   border: 1px solid var(--rule);
-  border-left: 2px solid var(--gold);
+  border-left: 3px solid var(--gold);
   border-radius: var(--radius-sm);
-  padding: var(--s3) var(--s4);
+  padding: var(--s3) var(--s5);
   min-height: 44px;
   cursor: pointer;
-  transition:
-    border-color 140ms ease,
-    background-color 140ms ease,
-    transform 140ms ease;
+  transition: all 180ms ease;
 }
 .suggestion:hover {
   background: var(--surface-gold);
   border-color: var(--rule-gold);
-  border-left-color: var(--bronze);
-  transform: translateX(2px);
+  border-left-color: var(--gold-deep);
+  transform: translateX(3px);
+  box-shadow: var(--shadow-sm);
 }
 
 /* ==========================================================================
-   Composer
+   Telemetry Badges
    ========================================================================== */
 
-.input-area {
-  padding: var(--s4) 0 var(--s6);
-  border-top: 1px solid var(--rule);
-  background: linear-gradient(to bottom, transparent, var(--canvas) 40%);
-  position: sticky;
-  bottom: 0;
-}
-
-.input-form {
+.telemetry-badges {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--s2);
-  align-items: stretch;
+  margin-top: var(--s3);
+  padding-top: var(--s2);
+  border-top: 1px solid var(--rule);
 }
 
-.chat-input {
-  flex: 1;
-  min-width: 0;
-  height: 52px;
-  background: var(--surface);
-  border: 1px solid var(--rule-strong);
-  border-radius: var(--radius);
-  padding: 0 var(--s4);
-  color: var(--ink);
-  font-family: var(--font-ui);
-  font-size: 1rem; /* >=16px prevents iOS focus zoom */
-  transition:
-    border-color 140ms ease,
-    box-shadow 140ms ease;
-}
-
-.chat-input::placeholder {
-  color: var(--ink-faint);
-}
-
-.chat-input:hover:not(:disabled) {
-  border-color: var(--rule-gold);
-}
-
-.chat-input:focus {
-  outline: none;
-  border-color: var(--focus-ring);
-  box-shadow: 0 0 0 3px oklch(0.62 0.13 80 / 0.22);
-}
-
-.chat-input:disabled {
-  background: var(--surface-sunken);
-  color: var(--ink-faint);
-  cursor: not-allowed;
-}
-
-.send-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--s2);
-  min-width: 112px;
-  height: 52px;
-  padding: 0 var(--s6);
-  font-family: var(--font-ui);
-  font-size: 0.875rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  /* Gold fill with a bronze outline: the fill alone would sit too close to
-     white to read as a defined control. */
-  background: var(--gold);
-  color: var(--ink-inverse);
-  border: 1px solid var(--bronze);
-  border-radius: var(--radius);
-  cursor: pointer;
-  transition:
-    background-color 140ms ease,
-    transform 140ms ease,
-    box-shadow 140ms ease;
-}
-
-.send-button:hover:not(:disabled) {
-  background: var(--gold-strong);
-  transform: translateY(-1px);
-  box-shadow: 0 2px 10px oklch(0.50 0.098 76 / 0.22);
-}
-
-.send-button:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: none;
-}
-
-.send-button:disabled {
-  background: var(--surface-sunken);
-  color: var(--ink-faint);
-  border-color: var(--rule);
-  cursor: not-allowed;
-}
-
-/* ==========================================================================
-   States
-   ========================================================================== */
-
-.typing-indicator {
+.telemetry-badge {
   display: inline-flex;
   align-items: center;
   gap: var(--s1);
-  height: 52px;
-  padding: 0 var(--s4);
-  background: var(--surface);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  width: fit-content;
-}
-
-.dot {
-  width: 6px;
-  height: 6px;
-  background: var(--bronze);
-  border-radius: 50%;
-  animation: pulse 1.3s ease-in-out infinite both;
-}
-.dot:nth-child(1) {
-  animation-delay: -0.26s;
-}
-.dot:nth-child(2) {
-  animation-delay: -0.13s;
-}
-
-@keyframes pulse {
-  0%,
-  70%,
-  100% {
-    opacity: 0.25;
-    transform: scale(0.8);
-  }
-  35% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-/* Error is carried by a label and a border, never by colour alone. */
-.message.error .message-content {
-  background: var(--danger-surface);
-  border: 1px solid var(--danger-rule);
-  border-left: 3px solid var(--danger);
-  border-radius: var(--radius-sm);
-  padding: var(--s3) var(--s4);
-  color: var(--ink);
-}
-
-.error-label {
-  display: block;
-  font-size: 0.6875rem;
+  padding: 2px var(--s3);
+  font-size: 0.625rem;
   font-weight: 700;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.telemetry-badge.cached {
+  color: var(--gold-deep);
+  background: var(--surface-gold);
+  border-color: var(--rule-gold);
+}
+
+.telemetry-badge.confidence.high {
+  color: var(--success);
+  background: #F0FFF4;
+  border-color: #C6F6D5;
+}
+
+.telemetry-badge.confidence.medium {
+  color: var(--gold-700);
+  background: #FEFCBF;
+  border-color: #F6E05E;
+}
+
+.telemetry-badge.confidence.low {
   color: var(--danger);
-  margin-bottom: var(--s1);
+  background: var(--danger-surface);
+  border-color: var(--danger-rule);
+}
+
+.telemetry-badge.verified {
+  color: var(--surface);
+  background: var(--success);
+  border-color: #276749;
+}
+
+.telemetry-badge.unverified {
+  color: var(--surface);
+  background: var(--danger);
+  border-color: #9B2C2C;
 }
 
 /* ==========================================================================
@@ -697,7 +1008,6 @@ body {
   border-radius: var(--radius-sm);
 }
 
-/* The composer keeps its own ring on the input chrome. */
 .chat-input:focus-visible {
   outline: none;
 }
@@ -733,36 +1043,55 @@ body {
    Responsive
    ========================================================================== */
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .app-container {
-    padding: 0 var(--s3);
+    padding: 0 var(--s4);
   }
 
   .header {
-    padding: var(--s4) 0 var(--s3);
+    padding: var(--s4) 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--s2);
   }
 
-  .header p {
-    display: none; /* the wordmark carries it at this width */
+  .workspace-intro {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--s3);
+    padding: var(--s6) 0 var(--s4);
+  }
+
+  .workspace-intro h2 {
+    font-size: 1.625rem;
+    max-width: 100%;
+  }
+
+  .intro-note {
+    text-align: left;
+    max-width: 100%;
+  }
+
+  .chat-container {
+    border-radius: var(--radius) var(--radius) 0 0;
   }
 
   .message-list {
-    padding: var(--s6) 0 var(--s4);
-    gap: var(--s4);
+    padding: var(--s5) var(--s4) var(--s4);
+    gap: var(--s5);
   }
 
   .message.user {
     max-width: 92%;
   }
 
-  .empty-state h2 {
-    font-size: 1.375rem;
+  .input-area {
+    padding: var(--s3) var(--s4) var(--s5);
   }
 
-  /* Stack the composer: a 112px button beside a field on a 320px screen
-     leaves the field unusable. */
   .input-form {
     flex-direction: column;
+    gap: var(--s2);
   }
 
   .send-button {
@@ -771,6 +1100,31 @@ body {
   }
 
   .source-card {
-    grid-template-columns: 1.75rem 1fr;
+    grid-template-columns: 1.5rem 1fr;
+    gap: var(--s2);
+    padding: var(--s2) var(--s3);
+  }
+
+  .empty-state h2 {
+    font-size: 1.375rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .header h1 {
+    font-size: 1.375rem;
+  }
+
+  .workspace-intro h2 {
+    font-size: 1.375rem;
+  }
+
+  .chat-input {
+    height: 48px;
+    font-size: 1rem;
+  }
+
+  .send-button {
+    height: 48px;
   }
 }

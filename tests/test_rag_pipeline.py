@@ -83,6 +83,13 @@ class _Hit:
         self.similarity = 0.93
 
 
+class _DummyLLM:
+    def with_structured_output(self, *args, **kwargs):
+        from langchain_core.runnables import RunnableLambda
+        from src.core.faithfulness_guard import FaithfulnessResult
+        return RunnableLambda(lambda x: FaithfulnessResult(is_faithful=True))
+
+
 def _build(
     documents: list[Document] | None = None,
     cache: _Cache | None = None,
@@ -93,7 +100,7 @@ def _build(
     pipeline = RAGPipeline(
         retriever=_Retriever(documents or []),
         reranker=reranker or _Reranker(),
-        generator=object(),
+        generator=_DummyLLM(),
         cache=cache or _Cache(),
         docstore=store,
     )
@@ -256,7 +263,7 @@ def test_stream_emits_sources_before_tokens():
 
     assert events[0]["type"] == "sources"
     assert events[0]["sources"][0]["source"] == "a.pdf"
-    assert events[-1] == {"type": "done", "cached": False}
+    assert events[-1] == {"type": "done", "cached": False, "confidence_score": 0.7, "faithfulness_passed": True}
     joined = "".join(event["value"] for event in events if event["type"] == "token")
     assert joined == "grounded answer here"
 
@@ -269,7 +276,7 @@ def test_stream_replays_a_cache_hit_as_one_token():
 
     assert events[0]["cached"] is True
     assert [event["value"] for event in events if event["type"] == "token"] == ["cached answer"]
-    assert events[-1]["cached"] is True
+    assert events[-1] == {"type": "done", "cached": True, "confidence_score": 1.0, "faithfulness_passed": True}
 
 
 def test_stream_stores_the_generated_answer():

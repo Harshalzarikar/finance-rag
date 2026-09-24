@@ -233,10 +233,17 @@ query
   │        drop passages scoring < RERANK_MIN_SCORE
   │        if none survive → decline, citing nothing, skip the LLM
   │
-  └─► 5. GENERATION
-           Groq openai/gpt-oss-120b, temperature 0.0
-           context labelled [Source: <file>, page <n>]
-           └──► answer + citations → written back to cache
+  ├─► 5. GENERATION (Chain-of-Thought)
+  │        Groq openai/gpt-oss-120b, temperature 0.0
+  │        context labelled [Source: <file>, page <n>]
+  │        model reasons in <thinking> blocks (which are stripped)
+  │
+  ├─► 6. FAITHFULNESS GUARD
+  │        second LLM pass to verify the answer is strictly entailed by context
+  │        if it fails → block the answer to prevent hallucination
+  │
+  └─► 7. RESPONSE
+           return answer + citations + confidence score → written back to cache
 ```
 
 ### Step 0 — Semantic cache
@@ -354,7 +361,7 @@ If no document carries a reranker score at all — reranking disabled, key missi
 the API failed — the floor cannot be applied and every passage is kept, preserving the
 previous behaviour.
 
-### Step 5 — Generation
+### Step 5 — Generation (Chain of Thought)
 
 Context is assembled with explicit labels:
 
@@ -368,11 +375,23 @@ Context is assembled with explicit labels:
 <passage text>
 ```
 
-The prompt (`SYSTEM_PROMPT` in `rag_pipeline.py`) instructs the model to answer only
-from that context, to cite the `[Source: ...]` labels, and to say so explicitly when the
+The prompt (`SYSTEM_PROMPT` in `rag_pipeline.py`) instructs the model to reason step-by-step
+inside `<thinking>...</thinking>` tags before answering. The model is told to answer only
+from the context, to cite the `[Source: ...]` labels, and to say so explicitly when the
 context is insufficient rather than answering from memory.
 
+Before the answer is returned to the user, the `<thinking>` blocks are stripped out via regex.
 Generation runs at `temperature=0.0` for reproducibility.
+
+### Step 6 — Faithfulness Guard
+
+To ensure a "zero-hallucination" pipeline, the generated answer is passed to a strict boolean entailment check (`FaithfulnessGuard`). This makes a second LLM call asking: *Does this answer contain any claims that are not strictly supported by the context?*
+
+If the guard fails, the answer is discarded and replaced with a fixed fallback message warning the user that the generated response was unsafe.
+
+### Step 7 — Confidence Scoring
+
+The response calculates a `confidence_score` (0.0 to 1.0) derived by averaging the reranker relevance scores of the retrieved passages. This score is emitted in the API response and displayed on the UI.
 
 Real response from the 3-PDF corpus:
 
@@ -554,7 +573,8 @@ crashing the process.
 | `RERANK_MODEL` | `rerank-v3.5` |
 | `RERANK_ENABLED` | `true` |
 | `RERANK_MAX_CANDIDATES` | `40` |
-| `RERANK_MIN_SCORE` | `0.30` — below this a passage is not cited; if none clear it, the service declines rather than citing unrelated documents |
+| `RERANK_MIN_SCORE` | `0.50` — below this a passage is not cited; if none clear it, the service declines rather than citing unrelated documents |
+| `ENABLE_FAITHFULNESS_GUARD` | `true` — run the post-generation entailment check |
 
 **Security**
 

@@ -72,7 +72,10 @@ def get_rate_limiter() -> RateLimiter:
     client: redis.Redis | None = None
     try:
         client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
+        client.ping()
+        logger.info("Rate-limiter Redis is reachable.")
     except Exception as exc:  # noqa: BLE001 - misconfigured URL degrades to unlimited
-        logger.error("Could not configure Redis for rate limiting (%s) — limits disabled.", exc)
+        logger.warning("Rate-limiter Redis is unreachable (%s) — limits disabled until reconnected.", exc)
+        client = None
 
     return RateLimiter(client, limit=settings.rate_limit_per_minute)

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from collections.abc import Iterator
 from functools import lru_cache
 from typing import Any
@@ -24,17 +25,29 @@ from langchain_core.stores import BaseStore
 
 from src.cache.semantic_cache import SemanticCache, get_semantic_cache
 from src.config.settings import get_settings
+from src.core.faithfulness_guard import FaithfulnessGuard
+from src.core.query_guard import QueryGuard, QueryGuardResult
 from src.llm.generator import get_llm
 from src.llm.reranker import CohereReranker, get_reranker
+from src.observability.metrics import rag_counters
 from src.retrieval.hybrid_search import HybridSearchService, get_hybrid_search
 from src.retrieval.vector_store import get_docstore
 
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are an expert Quantitative Finance & Financial Analyst AI.
-Answer the user's question accurately, concisely, and professionally, strictly grounded on the provided context.
-If the answer cannot be found or deduced from the context, state clearly that you do not have sufficient information.
-Cite the source documents you relied on, using the [Source: <name>] labels in the context.
+Your task is to answer the user's question STRICTLY based on the provided Context.
+You must use a Chain-of-Thought process before answering. Enclose your reasoning in <thinking>...</thinking> XML tags.
+
+Within <thinking>:
+1. Evaluate if the Context actually contains the information required to answer the Question.
+2. Extract exact quotes from the Context that support the answer.
+3. If the Context does not contain sufficient information, state this explicitly in the <thinking> block and plan to decline to answer.
+
+After the <thinking> block, provide your final concise answer.
+- Never invent or infer facts outside the Context.
+- Cite the source documents you relied on, using the [Source: <name>] labels.
+- If you lack sufficient information, state clearly that you do not have enough information to answer.
 
 Context:
 {context}
@@ -44,12 +57,25 @@ Context:
 # chunk is replaced by its parent section.
 _SCORE_KEYS = ("retriever", "bm25_score", "relevance_score")
 
+# Regex to strip Chain-of-Thought <thinking>...</thinking> blocks from responses.
+_THINKING_RE = re.compile(r"<thinking>.*?</thinking>\s*", re.DOTALL)
+
 # Returned when retrieval finds nothing relevant enough to answer from. The
 # generator is not consulted, because there is nothing to ground an answer in and
 # citing the near-misses would imply they support it.
 NO_RELEVANT_PASSAGE_ANSWER = (
     "No passage in the indexed corpus is relevant to this question, so I cannot answer it. "
     "The corpus may not cover this topic, or it may not be indexed yet."
+)
+
+HALLUCINATION_GUARD_ANSWER = (
+    "I'm sorry, but I cannot provide a verified answer based purely on the retrieved context. "
+    "The generated response failed the strict hallucination check."
+)
+
+QUERY_BLOCKED_ANSWER = (
+    "This query has been blocked by the safety filter. "
+    "Please rephrase your question to focus on quantitative finance topics."
 )
 
 
@@ -69,6 +95,8 @@ class RAGPipeline:
         self.generator = generator
         self.cache = cache
         self.docstore = docstore
+        self.faithfulness_guard = FaithfulnessGuard(llm=generator)
+        self.query_guard = QueryGuard()
         self.prompt_template = ChatPromptTemplate.from_messages([("system", SYSTEM_PROMPT), ("human", "{question}")])
 
     # ------------------------------------------------------------------
@@ -76,6 +104,18 @@ class RAGPipeline:
     # ------------------------------------------------------------------
     def run(self, query: str, top_k_rerank: int = 5) -> dict[str, Any]:
         """Answer ``query`` end to end, consulting the semantic cache first."""
+        guard_result = self.query_guard.check(query)
+        if not guard_result.allowed:
+            rag_counters("query_blocked")
+            return {
+                "answer": QUERY_BLOCKED_ANSWER,
+                "sources": [],
+                "cached": False,
+                "cache_similarity": None,
+                "confidence_score": 0.0,
+                "faithfulness_passed": False,
+            }
+
         cached = self.cache.get(query)
         if cached is not None:
             return {
@@ -83,23 +123,52 @@ class RAGPipeline:
                 "sources": cached.sources,
                 "cached": True,
                 "cache_similarity": cached.similarity,
+                "confidence_score": 1.0,
+                "faithfulness_passed": True,
             }
 
         documents = self._retrieve(query)
         reranked = self._relevant(self._rerank(query, documents, top_k_rerank))
         if not reranked:
+            rag_counters("declined")
             return {
                 "answer": NO_RELEVANT_PASSAGE_ANSWER,
                 "sources": [],
                 "cached": False,
                 "cache_similarity": None,
+                "confidence_score": 0.0,
+                "faithfulness_passed": False,
             }
 
-        answer = self._generate(query, reranked)
+        raw_answer = self._generate(query, reranked)
+        answer = self._strip_thinking(raw_answer)
+        context = self._build_context(reranked)
+        confidence = self._compute_confidence(reranked)
+
+        if get_settings().enable_faithfulness_guard:
+            if not self.faithfulness_guard.check(query, context, answer):
+                rag_counters("faithfulness_blocked")
+                return {
+                    "answer": HALLUCINATION_GUARD_ANSWER,
+                    "sources": [],
+                    "cached": False,
+                    "cache_similarity": None,
+                    "confidence_score": 0.0,
+                    "faithfulness_passed": False,
+                }
+
         sources = self._build_sources(reranked)
+        rag_counters("answered")
 
         self.cache.set(query, answer, sources)
-        return {"answer": answer, "sources": sources, "cached": False, "cache_similarity": None}
+        return {
+            "answer": answer,
+            "sources": sources,
+            "cached": False,
+            "cache_similarity": None,
+            "confidence_score": confidence,
+            "faithfulness_passed": True,
+        }
 
     def stream(self, query: str, top_k_rerank: int = 5) -> Iterator[dict[str, Any]]:
         """Yield the answer incrementally as ``sources``/``token``/``done`` events.
@@ -107,21 +176,31 @@ class RAGPipeline:
         Sources are emitted before the first token so the UI can render citations
         immediately. A cache hit is replayed as a single token.
         """
+        guard_result = self.query_guard.check(query)
+        if not guard_result.allowed:
+            rag_counters("query_blocked")
+            yield {"type": "sources", "sources": [], "cached": False}
+            yield {"type": "token", "value": QUERY_BLOCKED_ANSWER}
+            yield {"type": "done", "cached": False, "confidence_score": 0.0, "faithfulness_passed": False}
+            return
+
         cached = self.cache.get(query)
         if cached is not None:
             yield {"type": "sources", "sources": cached.sources, "cached": True}
             yield {"type": "token", "value": cached.answer}
-            yield {"type": "done", "cached": True}
+            yield {"type": "done", "cached": True, "confidence_score": 1.0, "faithfulness_passed": True}
             return
 
         documents = self._retrieve(query)
         reranked = self._relevant(self._rerank(query, documents, top_k_rerank))
         sources = self._build_sources(reranked)
+        confidence = self._compute_confidence(reranked)
         yield {"type": "sources", "sources": sources, "cached": False}
 
         if not reranked:
+            rag_counters("declined")
             yield {"type": "token", "value": NO_RELEVANT_PASSAGE_ANSWER}
-            yield {"type": "done", "cached": False}
+            yield {"type": "done", "cached": False, "confidence_score": 0.0, "faithfulness_passed": False}
             return
 
         context = self._build_context(reranked)
@@ -132,10 +211,20 @@ class RAGPipeline:
                 chunks.append(token)
                 yield {"type": "token", "value": token}
 
-        answer = "".join(chunks)
+        raw_answer = "".join(chunks)
+        answer = self._strip_thinking(raw_answer)
+
+        if get_settings().enable_faithfulness_guard and answer:
+            if not self.faithfulness_guard.check(query, context, answer):
+                rag_counters("faithfulness_blocked")
+                yield {"type": "error", "detail": "\n\n**Warning: The generated answer failed the strict faithfulness check and may contain hallucinations.**"}
+                yield {"type": "done", "cached": False, "confidence_score": 0.0, "faithfulness_passed": False}
+                return
+
         if answer:
+            rag_counters("answered")
             self.cache.set(query, answer, sources)
-        yield {"type": "done", "cached": False}
+        yield {"type": "done", "cached": False, "confidence_score": confidence, "faithfulness_passed": True}
 
     # ------------------------------------------------------------------
     # Retrieval
@@ -187,7 +276,7 @@ class RAGPipeline:
         seen: set[str] = set()
         unique: list[Document] = []
         for document in documents:
-            fingerprint = hashlib.sha1(
+            fingerprint = hashlib.sha256(
                 f"{document.metadata.get('source')}|{document.metadata.get('page')}|{document.page_content}".encode()
             ).hexdigest()
             if fingerprint in seen:
@@ -240,6 +329,23 @@ class RAGPipeline:
         context = self._build_context(documents)
         response = self._chain().invoke({"context": context, "question": query})
         return self._coerce_content(response.content)
+
+    @staticmethod
+    def _strip_thinking(text: str) -> str:
+        """Remove Chain-of-Thought ``<thinking>...</thinking>`` blocks from the output."""
+        return _THINKING_RE.sub("", text).strip()
+
+    @staticmethod
+    def _compute_confidence(documents: list[Document]) -> float:
+        """Derive a 0–1 confidence score from the reranker relevance scores."""
+        scores = [
+            float(doc.metadata["relevance_score"])
+            for doc in documents
+            if doc.metadata.get("relevance_score") is not None
+        ]
+        if not scores:
+            return 0.5  # unknown confidence when reranker is unavailable
+        return round(min(1.0, sum(scores) / len(scores)), 4)
 
     @staticmethod
     def _build_context(documents: list[Document]) -> str:

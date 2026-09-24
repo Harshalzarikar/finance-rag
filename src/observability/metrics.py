@@ -6,13 +6,24 @@ import logging
 from collections.abc import Iterator
 
 from fastapi import FastAPI
-from prometheus_client import REGISTRY
+from prometheus_client import REGISTRY, Counter
 from prometheus_client.metrics_core import GaugeMetricFamily
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from src.cache.semantic_cache import SemanticCache, get_semantic_cache
 
 logger = logging.getLogger(__name__)
+
+# Pipeline decision counters
+_PIPELINE_DECISIONS = Counter(
+    "rag_pipeline_decisions_total",
+    "Number of times the pipeline reached a specific termination decision",
+    ["decision"]
+)
+
+def rag_counters(decision: str) -> None:
+    """Increment a pipeline decision counter (e.g. answered, declined)."""
+    _PIPELINE_DECISIONS.labels(decision=decision).inc()
 
 # Cache counters are read from the live cache at scrape time rather than mirrored
 # into separate Prometheus counters, so there is a single source of truth.

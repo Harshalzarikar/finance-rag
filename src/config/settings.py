@@ -72,7 +72,9 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     groq_api_key: str = Field("", description="API key for Groq generation")
     groq_model_name: str = Field("openai/gpt-oss-120b", description="Groq model used for generation")
+    groq_request_timeout: int = Field(60, ge=1, description="Groq LLM request timeout in seconds")
     cohere_api_key: str = Field("", description="API key for Cohere Rerank")
+    cohere_timeout: int = Field(30, ge=1, description="Cohere reranker request timeout in seconds")
 
     # ------------------------------------------------------------------
     # API security
@@ -136,7 +138,7 @@ class Settings(BaseSettings):
     rerank_model: str = Field("rerank-v3.5", description="Cohere rerank model")
     rerank_max_candidates: int = Field(40, ge=1, description="Cap on documents sent to the reranker")
     rerank_min_score: float = Field(
-        0.30,
+        0.50,
         ge=0.0,
         le=1.0,
         description=(
@@ -144,6 +146,13 @@ class Settings(BaseSettings):
             "Passages below it are dropped, and if none clear it the service declines to "
             "answer rather than citing unrelated documents."
         ),
+    )
+
+    # ------------------------------------------------------------------
+    # Faithfulness Guard
+    # ------------------------------------------------------------------
+    enable_faithfulness_guard: bool = Field(
+        True, description="Enable post-generation LLM entailment check to block hallucinations."
     )
 
     # ------------------------------------------------------------------
