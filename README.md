@@ -1,5 +1,7 @@
 # Quantitative Finance RAG
 
+**New to this repo?** Read [START_HERE.md](START_HERE.md) first (short path), or **[PROJECT_COMPLETE_GUIDE.md](PROJECT_COMPLETE_GUIDE.md)** for the full architecture, production flow, thresholds, and reference in one file.
+
 A production-oriented retrieval-augmented generation service over a corpus of
 quantitative finance research papers. Layout-aware parsing, parent/child chunking,
 hybrid keyword + dense retrieval, cross-encoder reranking, grounded citations, and
@@ -44,8 +46,13 @@ query
         ├─► expand child chunks back to their parent sections
         ├─► drop duplicate passages
         ├─► Cohere cross-encoder rerank (top_n)
-        └─► Groq generation with [Source: …] labels ──► answer + citations
+        └─► Groq generation with [Source: …] labels
+              └─► optional faithfulness audit (ENABLE_FAITHFULNESS_GUARD) ──► answer + citations
 ```
+
+When retrieval is weak, the model is instructed to say the context does not contain
+enough information; the faithfulness guard can block answers that are not fully
+supported by the retrieved passages (see `src/core/faithfulness_guard.py`).
 
 Ingestion path:
 
@@ -91,13 +98,15 @@ The settings that most often need changing:
 
 | Variable | Default | Notes |
 |---|---|---|
-| `API_KEYS` | *(empty)* | Comma-separated. **Empty disables authentication** — set this in any deployment reachable by others. |
+| `API_KEYS` | *(empty)* | Legacy comma-separated keys (single-tenant dev). With **`DATABASE_URL` set**, auth is always on (JWT login + per-tenant `X-API-Key`). With neither Postgres nor `API_KEYS`, auth is **off** — only for isolated local dev. |
+| `JWT_SECRET` | *(empty)* | Signs browser session tokens after `/auth/login`; required in production with Postgres. |
+| `ENABLE_FAITHFULNESS_GUARD` | `true` | Post-generation entailment check against retrieved context. |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated browser origins. |
 | `QDRANT_URL` | `http://localhost:6333` | Leave empty to use embedded on-disk Qdrant (single process only). |
 | `REDIS_URL` | `redis://localhost:6379/0` | Must be a **Redis Stack** server; the plain `redis` image has no vector index. |
 | `GROQ_API_KEY` / `COHERE_API_KEY` | *(empty)* | Required for generation and reranking respectively. |
 | `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `BAAI/bge-small-en-v1.5` / `384` | Validated against each other at start-up; a mismatch is a hard error. |
-| `SEMANTIC_CACHE_THRESHOLD` | `0.88` | Cosine similarity required for a cache hit. |
+| `SEMANTIC_CACHE_THRESHOLD` | `0.88` | Cosine similarity required for a cache hit. Keys include **tenant id + prompt pack version** so tenants do not share entries; tune lower for stricter finance queries if you see near-duplicate hits. |
 
 ## Running locally
 
@@ -246,9 +255,14 @@ docker compose --profile tools run --rm ingest --tenant-id acme-insurance --limi
 
 **3. Customer uses the web app**
 
-Open `http://localhost:8080` (or your public URL), sign in with the agency key.
-The SPA stores it in `localStorage`, sends it as `X-API-Key` on every `/api/*`
-call, and the API scopes retrieval to that tenant's indexes.
+Open `http://localhost:8080` (or your public URL), sign in with email/password
+(or the flows your deployment exposes). The SPA stores a **JWT** in `localStorage`
+and sends `Authorization: Bearer …` on `/api/*` calls; server integrations should
+use **`X-API-Key`** with the tenant secret instead. Retrieval and semantic cache
+are scoped to the authenticated tenant.
+
+**Security note:** JWT in `localStorage` is convenient for a demo SPA but is
+vulnerable to XSS; production products often prefer httpOnly cookie sessions.
 
 **4. Integrate from another app**
 
@@ -258,8 +272,8 @@ curl -s -H "X-API-Key: <agency-key>" -H "Content-Type: application/json" \
   http://localhost:8000/chat
 ```
 
-With Postgres enabled, requests **without** `X-API-Key` are rejected — there is no
-anonymous `default` tenant in production.
+With Postgres enabled, requests **without** a valid `Authorization: Bearer` JWT or
+`X-API-Key` are rejected — there is no anonymous `default` tenant in production.
 
 ## Deployment
 
@@ -314,6 +328,31 @@ mypy                    # types
 pytest -q               # tests
 ```
 
+`make check` runs all four. The test suite needs no network: every external client
+is stubbed.
+
+### Evaluating retrieval
+
+```bash
+cp tests/eval/golden_queries_template.json tests/eval/golden_queries.json
+# fill in verified relevant_sources, then:
+python tests/eval/run_eval.py --k 5
+```
+
+Reports `recall@k`, `MRR`, and the MRR lift from reranking. It runs offline against
+the live index, so it is deterministic and cheap enough to run after each
+ingestion. Queries whose ground truth you have not verified are reported as
+skipped rather than counted.
+
+The repository ships only the **template** file (real `golden_queries.json` is
+gitignored). There are **no published benchmark numbers** in this README until you
+add a verified golden set and record results here or in `PROJECT_COMPLETE_GUIDE.md`.
+
+Hybrid weights (`ENSEMBLE_WEIGHTS`, default 0.4/0.6) and recall sizes are sensible
+defaults; tune them against your golden set with `run_eval.py`.
+
+## Troubleshooting
+
 ### Docker build: `lookup registry-1.docker.io: no such host`
 
 This is a **network/DNS** problem on the machine (Docker cannot reach Docker Hub), not an application bug.
@@ -323,22 +362,6 @@ This is a **network/DNS** problem on the machine (Docker cannot reach Docker Hub
 3. Retry: `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build`
 
 The API `Dockerfile` no longer uses `# syntax=docker/dockerfile:1`, so BuildKit does not need an extra pull of `docker/dockerfile:1` before building. You still need Hub access for base images (`python:3.13-slim`, `node:22-alpine`, `caddy:2-alpine`, etc.).
-
-`make check` runs all four. The test suite needs no network: every external client
-is stubbed.
-
-### Evaluating retrieval
-
-```bash
-cp tests/eval/golden_queries.example.json tests/eval/golden_queries.json
-# fill in verified relevant_sources, then:
-python tests/eval/run_eval.py --k 5
-```
-
-Reports `recall@k`, `MRR`, and the MRR lift from reranking. It runs offline against
-the live index, so it is deterministic and cheap enough to run after each
-ingestion. Queries whose ground truth you have not verified are reported as
-skipped rather than counted.
 
 ## Project layout
 
@@ -356,7 +379,7 @@ scripts/ingest.py CLI ingestion pipeline
 frontend/         React + Vite SPA served by Caddy
 tests/            unit and API tests
 tests/eval/       retrieval evaluation harness
-reference/ragflow upstream RAGFlow assets kept for reference only
+reference/        optional upstream snippets (see reference/README.md); not used at runtime
 ```
 
 ## Attribution
@@ -364,8 +387,8 @@ reference/ragflow upstream RAGFlow assets kept for reference only
 The retrieval design follows patterns established by
 [RAGFlow](https://github.com/infiniflow/ragflow) (Apache-2.0):
 
-- **Layout-aware parsing** — `pymupdf4llm` runs the same class of ONNX document
-  layout recognition and table structure recognition models RAGFlow's DeepDoc uses.
+- **Layout-aware parsing** — `pymupdf4llm` uses ONNX layout/table models in the
+  same *family* as RAGFlow's DeepDoc (not a byte-for-byte copy of DeepDoc).
 - **Parent/child chunking** — large sections are kept for generation context while
   small child chunks are embedded and matched, so retrieval stays precise without
   starving the model of context.
@@ -374,9 +397,9 @@ The retrieval design follows patterns established by
   names, Greek letters) carry meaning that embeddings blur.
 - **Fused reranking** — a cross-encoder rescores the fused set before generation.
 
-RAGFlow itself is not deployed. Its compose file and environment template are kept
-under `reference/ragflow/` purely as reference and are not part of this stack.
+RAGFlow itself is not deployed. A small `reference/` tree holds optional upstream
+snippets for comparison; this stack does not import them at runtime.
 
 ## License
 
-See the repository for licensing details.
+[MIT](LICENSE) — Copyright (c) 2026 Harshal Zarikar.
