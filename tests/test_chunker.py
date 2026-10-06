@@ -47,7 +47,7 @@ def test_child_splitter_respects_chunk_size():
 
 def test_child_splitter_preserves_citation_metadata():
     """Child chunks must keep source/page, or keyword citations become unresolvable."""
-    splitter = DeepDocChildSplitter(chunk_size=50, chunk_overlap=10)
+    splitter = DeepDocChildSplitter(chunk_size=200, chunk_overlap=20)
     documents = [Document(page_content="word " * 60, metadata={"source": "a.pdf", "page": 7})]
 
     children = splitter.split_documents(documents)

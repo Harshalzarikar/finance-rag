@@ -83,12 +83,40 @@ class Settings(BaseSettings):
         default_factory=list,
         description="Accepted X-API-Key values, comma separated. Empty disables authentication.",
     )
+    # Separate high-privilege key that gates /auth/register and /admin/* routes.
+    # Set ADMIN_API_KEY in .env or the environment. If empty, admin routes are disabled.
+    admin_api_key: str = Field(
+        "",
+        description="Secret key required to register new tenants and call admin endpoints.",
+    )
+    jwt_secret: str = Field(
+        "",
+        description="HS256 signing key for login JWTs. Set a long random value in production.",
+    )
+    jwt_expire_minutes: int = Field(60 * 24, ge=5, description="Browser session lifetime in minutes")
+    public_signup_enabled: bool = Field(
+        True,
+        description="When true, users can self-register via POST /auth/signup.",
+    )
     cors_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://localhost:5173"],
         description="Allowed CORS origins, comma separated.",
     )
     rate_limit_per_minute: int = Field(30, ge=1, description="Per-caller request budget per minute")
     max_query_chars: int = Field(2000, ge=1, description="Maximum accepted query length")
+    app_env: str = Field(
+        "development",
+        description="Set to 'production' to enforce strong secrets and disable unsafe defaults.",
+    )
+    site_domain: str = Field(
+        "",
+        description="Public hostname (no scheme). Used for TLS via Caddy and CORS alignment.",
+    )
+    caddy_email: str = Field("", description="Let's Encrypt contact email for the frontend Caddy container.")
+    allow_public_signup_in_production: bool = Field(
+        False,
+        description="When true with PUBLIC_SIGNUP_ENABLED, allows self-service signup in APP_ENV=production.",
+    )
 
     # ------------------------------------------------------------------
     # Vector database
@@ -154,6 +182,23 @@ class Settings(BaseSettings):
     enable_faithfulness_guard: bool = Field(
         True, description="Enable post-generation LLM entailment check to block hallucinations."
     )
+    rag_persona: str = Field(
+        "",
+        description="Optional platform-wide instructions prepended for every tenant (Layer: deployment).",
+    )
+    prompt_pack_id: str = Field(
+        "default",
+        description="Prompt pack file id under src/core/prompts/{id}.json (version field inside the file).",
+    )
+    # ------------------------------------------------------------------
+    # PostgreSQL (production document store + FTS keyword index)
+    # When set, PostgresDocStore and PostgresBM25Retriever are used
+    # instead of the local pickle files.
+    # ------------------------------------------------------------------
+    database_url: str | None = Field(
+        None,
+        description="SQLAlchemy DSN for PostgreSQL, e.g. postgresql+psycopg://user:pw@host/db",
+    )
 
     # ------------------------------------------------------------------
     # Semantic cache
@@ -217,13 +262,22 @@ class Settings(BaseSettings):
             raise ValueError(f"ENSEMBLE_WEIGHTS must sum to a positive value: {weights}")
         return self
 
+    @model_validator(mode="after")
+    def _validate_production_hardening(self) -> Settings:
+        from src.config.production_guard import collect_production_errors
+
+        errors = collect_production_errors(self)
+        if errors:
+            raise ValueError("Production configuration invalid:\n" + "\n".join(f"  - {item}" for item in errors))
+        return self
+
     # ------------------------------------------------------------------
     # Derived values
     # ------------------------------------------------------------------
     @property
     def auth_enabled(self) -> bool:
-        """Authentication is enforced only when at least one API key is configured."""
-        return bool(self.api_keys)
+        """Auth is on when Postgres multi-tenancy is enabled or legacy API_KEYS are set."""
+        return bool(self.database_url) or bool(self.api_keys)
 
     @property
     def use_remote_qdrant(self) -> bool:
@@ -236,6 +290,27 @@ class Settings(BaseSettings):
     @property
     def vector_weight(self) -> float:
         return self.ensemble_weights[1]
+
+    @property
+    def effective_cors_origins(self) -> list[str]:
+        """Production CORS list, including https://SITE_DOMAIN when configured."""
+        origins = list(self.cors_origins)
+        if self.app_env.lower() == "production" and self.site_domain.strip():
+            origin = f"https://{self.site_domain.strip()}"
+            if origin not in origins:
+                origins.append(origin)
+        return origins
+
+    @property
+    def jwt_signing_key(self) -> str:
+        """Key used to sign login tokens."""
+        if self.jwt_secret:
+            return self.jwt_secret
+        if self.admin_api_key:
+            import hashlib
+
+            return hashlib.sha256(f"jwt:{self.admin_api_key}".encode()).hexdigest()
+        return "insecure-dev-only-set-JWT_SECRET"
 
 
 @lru_cache(maxsize=1)

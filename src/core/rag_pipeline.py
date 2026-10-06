@@ -26,7 +26,13 @@ from langchain_core.stores import BaseStore
 from src.cache.semantic_cache import SemanticCache, get_semantic_cache
 from src.config.settings import get_settings
 from src.core.faithfulness_guard import FaithfulnessGuard
-from src.core.query_guard import QueryGuard, QueryGuardResult
+from src.core.prompt_builder import (
+    build_system_prompt,
+    cache_scope_for_prompt,
+    effective_prompt_pack,
+    wants_comprehensive_answer,
+)
+from src.core.query_guard import QueryGuard
 from src.llm.generator import get_llm
 from src.llm.reranker import CohereReranker, get_reranker
 from src.observability.metrics import rag_counters
@@ -34,24 +40,6 @@ from src.retrieval.hybrid_search import HybridSearchService, get_hybrid_search
 from src.retrieval.vector_store import get_docstore
 
 logger = logging.getLogger(__name__)
-
-SYSTEM_PROMPT = """You are an expert Quantitative Finance & Financial Analyst AI.
-Your task is to answer the user's question STRICTLY based on the provided Context.
-You must use a Chain-of-Thought process before answering. Enclose your reasoning in <thinking>...</thinking> XML tags.
-
-Within <thinking>:
-1. Evaluate if the Context actually contains the information required to answer the Question.
-2. Extract exact quotes from the Context that support the answer.
-3. If the Context does not contain sufficient information, state this explicitly in the <thinking> block and plan to decline to answer.
-
-After the <thinking> block, provide your final concise answer.
-- Never invent or infer facts outside the Context.
-- Cite the source documents you relied on, using the [Source: <name>] labels.
-- If you lack sufficient information, state clearly that you do not have enough information to answer.
-
-Context:
-{context}
-"""
 
 # Metadata keys that carry a candidate's retrieval score, preserved when a child
 # chunk is replaced by its parent section.
@@ -79,6 +67,22 @@ QUERY_BLOCKED_ANSWER = (
 )
 
 
+_ENTITY_QUERY_STOPWORDS = frozenset(
+    {
+        "about",
+        "detail",
+        "details",
+        "information",
+        "everything",
+        "comprehensive",
+        "profile",
+        "resume",
+        "tell",
+        "more",
+    }
+)
+
+
 class RAGPipeline:
     """Coordinates retrieval, reranking, generation, and caching."""
 
@@ -89,21 +93,42 @@ class RAGPipeline:
         generator: Any,
         cache: SemanticCache,
         docstore: BaseStore | None = None,
+        tenant_id: str = "default",
     ) -> None:
         self.retriever = retriever
         self.reranker = reranker
         self.generator = generator
         self.cache = cache
         self.docstore = docstore
+        self.tenant_id = tenant_id
+        self._tenant_instructions = ""
+        self._tenant_prompt_pack_id: str | None = None
+        settings = get_settings()
+        if settings.database_url:
+            from src.db.tenant_store import get_tenant_prompt_settings
+
+            tenant_prompt = get_tenant_prompt_settings(settings.database_url, tenant_id)
+            self._tenant_instructions = tenant_prompt.custom_instructions
+            self._tenant_prompt_pack_id = tenant_prompt.prompt_pack_id
         self.faithfulness_guard = FaithfulnessGuard(llm=generator)
         self.query_guard = QueryGuard()
-        self.prompt_template = ChatPromptTemplate.from_messages([("system", SYSTEM_PROMPT), ("human", "{question}")])
+
+    def _active_prompt_version(self) -> str:
+        pack = effective_prompt_pack(self._tenant_prompt_pack_id)
+        return f"{pack.pack_id}@{pack.version}"
+
+    def _scoped_cache_query(self, query: str) -> str:
+        pack = effective_prompt_pack(self._tenant_prompt_pack_id)
+        scope = cache_scope_for_prompt(pack.version, self.tenant_id, self._tenant_instructions)
+        return f"{scope}\n{query}"
 
     # ------------------------------------------------------------------
-    # Public API
     # ------------------------------------------------------------------
-    def run(self, query: str, top_k_rerank: int = 5) -> dict[str, Any]:
+    def run(
+        self, query: str, top_k_rerank: int = 5, chat_history: list[dict[str, str]] | None = None
+    ) -> dict[str, Any]:
         """Answer ``query`` end to end, consulting the semantic cache first."""
+        query = self._rewrite_query(query, chat_history)
         guard_result = self.query_guard.check(query)
         if not guard_result.allowed:
             rag_counters("query_blocked")
@@ -116,19 +141,24 @@ class RAGPipeline:
                 "faithfulness_passed": False,
             }
 
-        cached = self.cache.get(query)
-        if cached is not None:
-            return {
-                "answer": cached.answer,
-                "sources": cached.sources,
-                "cached": True,
-                "cache_similarity": cached.similarity,
-                "confidence_score": 1.0,
-                "faithfulness_passed": True,
-            }
+        comprehensive = wants_comprehensive_answer(query)
+        cache_query = self._scoped_cache_query(query)
+        if not comprehensive:
+            cached = self.cache.get(cache_query)
+            if cached is not None:
+                return {
+                    "answer": cached.answer,
+                    "sources": cached.sources,
+                    "cached": True,
+                    "cache_similarity": cached.similarity,
+                    "confidence_score": 1.0,
+                    "faithfulness_passed": True,
+                    "prompt_pack_version": self._active_prompt_version(),
+                }
 
+        effective_top_k = max(top_k_rerank, 8) if comprehensive else top_k_rerank
         documents = self._retrieve(query)
-        reranked = self._relevant(self._rerank(query, documents, top_k_rerank))
+        reranked = self._relevant(self._rerank(query, documents, effective_top_k), query)
         if not reranked:
             rag_counters("declined")
             return {
@@ -138,6 +168,7 @@ class RAGPipeline:
                 "cache_similarity": None,
                 "confidence_score": 0.0,
                 "faithfulness_passed": False,
+                "prompt_pack_version": self._active_prompt_version(),
             }
 
         raw_answer = self._generate(query, reranked)
@@ -160,7 +191,8 @@ class RAGPipeline:
         sources = self._build_sources(reranked)
         rag_counters("answered")
 
-        self.cache.set(query, answer, sources)
+        if not comprehensive:
+            self.cache.set(cache_query, answer, sources)
         return {
             "answer": answer,
             "sources": sources,
@@ -168,14 +200,18 @@ class RAGPipeline:
             "cache_similarity": None,
             "confidence_score": confidence,
             "faithfulness_passed": True,
+            "prompt_pack_version": self._active_prompt_version(),
         }
 
-    def stream(self, query: str, top_k_rerank: int = 5) -> Iterator[dict[str, Any]]:
+    def stream(
+        self, query: str, top_k_rerank: int = 5, chat_history: list[dict[str, str]] | None = None
+    ) -> Iterator[dict[str, Any]]:
         """Yield the answer incrementally as ``sources``/``token``/``done`` events.
 
         Sources are emitted before the first token so the UI can render citations
         immediately. A cache hit is replayed as a single token.
         """
+        query = self._rewrite_query(query, chat_history)
         guard_result = self.query_guard.check(query)
         if not guard_result.allowed:
             rag_counters("query_blocked")
@@ -184,15 +220,25 @@ class RAGPipeline:
             yield {"type": "done", "cached": False, "confidence_score": 0.0, "faithfulness_passed": False}
             return
 
-        cached = self.cache.get(query)
-        if cached is not None:
-            yield {"type": "sources", "sources": cached.sources, "cached": True}
-            yield {"type": "token", "value": cached.answer}
-            yield {"type": "done", "cached": True, "confidence_score": 1.0, "faithfulness_passed": True}
-            return
+        comprehensive = wants_comprehensive_answer(query)
+        cache_query = self._scoped_cache_query(query)
+        if not comprehensive:
+            cached = self.cache.get(cache_query)
+            if cached is not None:
+                yield {"type": "sources", "sources": cached.sources, "cached": True}
+                yield {"type": "token", "value": cached.answer}
+                yield {
+                    "type": "done",
+                    "cached": True,
+                    "confidence_score": 1.0,
+                    "faithfulness_passed": True,
+                    "prompt_pack_version": self._active_prompt_version(),
+                }
+                return
 
+        effective_top_k = max(top_k_rerank, 8) if comprehensive else top_k_rerank
         documents = self._retrieve(query)
-        reranked = self._relevant(self._rerank(query, documents, top_k_rerank))
+        reranked = self._relevant(self._rerank(query, documents, effective_top_k), query)
         sources = self._build_sources(reranked)
         confidence = self._compute_confidence(reranked)
         yield {"type": "sources", "sources": sources, "cached": False}
@@ -205,7 +251,7 @@ class RAGPipeline:
 
         context = self._build_context(reranked)
         chunks: list[str] = []
-        for part in self._chain().stream({"context": context, "question": query}):
+        for part in self._chain(query, reranked).stream({"question": query}):
             token = self._coerce_content(part.content)
             if token:
                 chunks.append(token)
@@ -217,14 +263,57 @@ class RAGPipeline:
         if get_settings().enable_faithfulness_guard and answer:
             if not self.faithfulness_guard.check(query, context, answer):
                 rag_counters("faithfulness_blocked")
-                yield {"type": "error", "detail": "\n\n**Warning: The generated answer failed the strict faithfulness check and may contain hallucinations.**"}
+                yield {
+                    "type": "error",
+                    "detail": "\n\n**Warning: The generated answer failed the strict faithfulness check and may contain hallucinations.**",
+                }
                 yield {"type": "done", "cached": False, "confidence_score": 0.0, "faithfulness_passed": False}
                 return
 
         if answer:
             rag_counters("answered")
-            self.cache.set(query, answer, sources)
-        yield {"type": "done", "cached": False, "confidence_score": confidence, "faithfulness_passed": True}
+            if not comprehensive:
+                self.cache.set(cache_query, answer, sources)
+        yield {
+            "type": "done",
+            "cached": False,
+            "confidence_score": confidence,
+            "faithfulness_passed": True,
+            "prompt_pack_version": self._active_prompt_version(),
+        }
+
+    # ------------------------------------------------------------------
+    # Query Rewriting
+    # ------------------------------------------------------------------
+    def _rewrite_query(self, query: str, chat_history: list[dict[str, str]] | None) -> str:
+        if not chat_history:
+            return query
+
+        history_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in chat_history[-4:]])
+
+        prompt = f"""Given the following conversation history and the user's latest question, rewrite the question to be a standalone query that can be understood without the history.
+If the latest question is already self-contained, just return it exactly as is.
+Only return the rewritten query, nothing else.
+
+Chat History:
+{history_str}
+
+Latest Question: {query}
+Standalone Query:"""
+
+        try:
+            response = self.generator.invoke(prompt)
+            if hasattr(response, "content"):
+                rewritten = response.content.strip()
+            else:
+                rewritten = str(response).strip()
+            if rewritten:
+                logger.info("Rewrote query from '%s' to '%s'", query, rewritten)
+                return rewritten
+        except Exception as e:
+            logger.warning("Failed to rewrite query: %s", e)
+
+        return query
 
     # ------------------------------------------------------------------
     # Retrieval
@@ -235,7 +324,7 @@ class RAGPipeline:
         resolved = self._resolve_parents(candidates)
         deduplicated = self._deduplicate(resolved)
         logger.info(
-            "Retrieved %d candidates → %d after parent resolution and dedup.",
+            "Retrieved %d candidates -> %d after parent resolution and dedup.",
             len(candidates),
             len(deduplicated),
         )
@@ -291,7 +380,23 @@ class RAGPipeline:
         return self.reranker.rerank(query, documents, top_n=top_k_rerank)
 
     @staticmethod
-    def _relevant(documents: list[Document]) -> list[Document]:
+    def _entity_tokens(query: str) -> list[str]:
+        return [
+            token
+            for token in query.lower().split()
+            if len(token) >= 5 and token.isalpha() and token not in _ENTITY_QUERY_STOPWORDS
+        ]
+
+    @staticmethod
+    def _document_matches_entity(query: str, document: Document) -> bool:
+        tokens = RAGPipeline._entity_tokens(query)
+        if not tokens:
+            return False
+        blob = f"{document.metadata.get('source', '')} {document.page_content[:800]}".lower()
+        return any(token in blob for token in tokens)
+
+    @staticmethod
+    def _relevant(documents: list[Document], query: str = "") -> list[Document]:
         """Keep only passages the reranker judged relevant enough to cite.
 
         Without this, a query the corpus cannot answer still produced a full list of
@@ -309,10 +414,32 @@ class RAGPipeline:
         floor = get_settings().rerank_min_score
         relevant = [doc for doc in scored if float(doc.metadata["relevance_score"]) >= floor]
 
-        if len(relevant) != len(scored):
+        if relevant:
+            if len(relevant) != len(scored):
+                logger.info(
+                    "Dropped %d/%d passages below the relevance floor (%.2f).",
+                    len(scored) - len(relevant),
+                    len(scored),
+                    floor,
+                )
+            return relevant
+
+        entity_matched = [doc for doc in scored if RAGPipeline._document_matches_entity(query, doc)]
+        if entity_matched:
+            entity_matched.sort(key=lambda doc: float(doc.metadata["relevance_score"]), reverse=True)
+            picked = entity_matched[:5]
+            logger.info(
+                "Relaxed relevance floor for entity query; kept %d/%d name-matched passages (top score %.3f).",
+                len(picked),
+                len(scored),
+                float(picked[0].metadata["relevance_score"]),
+            )
+            return picked
+
+        if len(scored) != len(relevant):
             logger.info(
                 "Dropped %d/%d passages below the relevance floor (%.2f).",
-                len(scored) - len(relevant),
+                len(scored),
                 len(scored),
                 floor,
             )
@@ -321,13 +448,21 @@ class RAGPipeline:
     # ------------------------------------------------------------------
     # Generation
     # ------------------------------------------------------------------
-    def _chain(self) -> Any:
-        """Prompt-plus-model chain. A seam so tests can supply a fake model."""
-        return self.prompt_template | self.generator
+    def _chain(self, query: str, documents: list[Document]) -> Any:
+        """Build prompt | model for this query and retrieved context."""
+        context = self._build_context(documents)
+        system = build_system_prompt(
+            query=query,
+            context=context,
+            documents=documents,
+            tenant_instructions=self._tenant_instructions,
+            tenant_pack_id=self._tenant_prompt_pack_id,
+        )
+        template = ChatPromptTemplate.from_messages([("system", system), ("human", "{question}")])
+        return template | self.generator
 
     def _generate(self, query: str, documents: list[Document]) -> str:
-        context = self._build_context(documents)
-        response = self._chain().invoke({"context": context, "question": query})
+        response = self._chain(query, documents).invoke({"question": query})
         return self._coerce_content(response.content)
 
     @staticmethod
@@ -380,14 +515,15 @@ class RAGPipeline:
         return str(content)
 
 
-@lru_cache(maxsize=1)
-def get_rag_pipeline() -> RAGPipeline:
-    """Assemble the pipeline once per process."""
-    logger.info("Assembling RAG pipeline.")
+@lru_cache(maxsize=32)
+def get_rag_pipeline(tenant_id: str = "default") -> RAGPipeline:
+    """Assemble a tenant-scoped pipeline (one cached instance per tenant)."""
+    logger.info("Assembling RAG pipeline (tenant=%s).", tenant_id)
     return RAGPipeline(
-        retriever=get_hybrid_search(),
+        retriever=get_hybrid_search(tenant_id),
         reranker=get_reranker(),
         generator=get_llm(),
         cache=get_semantic_cache(),
-        docstore=get_docstore(),
+        docstore=get_docstore(tenant_id),
+        tenant_id=tenant_id,
     )

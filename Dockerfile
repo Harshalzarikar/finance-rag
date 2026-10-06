@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 # ---------------------------------------------------------------------------
 # Build stage — resolve dependencies into a virtualenv we copy wholesale
 # ---------------------------------------------------------------------------
@@ -26,8 +24,11 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 WORKDIR /app
 COPY requirements.txt .
+# Keep torch on the CPU wheel: requirements.txt pins torch==2.14.0, which PyPI
+# would otherwise resolve to the CUDA build on Linux.
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirements.txt
+    pip install -r requirements.txt \
+    --extra-index-url https://download.pytorch.org/whl/cpu
 
 # ---------------------------------------------------------------------------
 # Runtime stage

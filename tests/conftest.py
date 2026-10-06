@@ -17,6 +17,12 @@ import pytest
 os.environ.setdefault("GROQ_API_KEY", "test-groq-key")
 os.environ.setdefault("COHERE_API_KEY", "test-cohere-key")
 os.environ.setdefault("API_KEYS", "test-api-key")
+os.environ.setdefault("ADMIN_API_KEY", "")
+os.environ.setdefault("APP_ENV", "development")
+# DATABASE_URL switches auth and retrieval to the Postgres-backed path, and the
+# tests exercise the DB-less path. It also tends to already exist in the process
+# environment, so it must be forced off rather than setdefault-ed.
+os.environ["DATABASE_URL"] = ""
 os.environ.setdefault("QDRANT_URL", "")
 os.environ.setdefault("SEMANTIC_CACHE_ENABLED", "false")
 os.environ.setdefault("LOG_JSON", "false")
@@ -158,7 +164,9 @@ class FakePipeline:
         self.answer = answer
         self.calls: list[tuple[str, int]] = []
 
-    def run(self, query: str, top_k_rerank: int = 5) -> dict[str, Any]:
+    def run(
+        self, query: str, top_k_rerank: int = 5, chat_history: list[dict[str, str]] | None = None
+    ) -> dict[str, Any]:
         self.calls.append((query, top_k_rerank))
         return {
             "answer": self.answer,
@@ -167,8 +175,8 @@ class FakePipeline:
             "cache_similarity": None,
         }
 
-    def stream(self, query: str, top_k_rerank: int = 5):
-        del query, top_k_rerank
+    def stream(self, query: str, top_k_rerank: int = 5, chat_history: list[dict[str, str]] | None = None):
+        del query, top_k_rerank, chat_history
         yield {
             "type": "sources",
             "sources": [{"source": "paper.pdf", "page": 3, "score": 0.91, "snippet": "excerpt"}],

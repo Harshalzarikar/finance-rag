@@ -23,6 +23,7 @@ from src.retrieval.storage import PickleFileStore
 
 logger = logging.getLogger(__name__)
 
+
 # Payload paths written by langchain-qdrant (payload is {"page_content", "metadata"}).
 SOURCE_FIELD = "metadata.source"
 PAGE_FIELD = "metadata.page"
@@ -143,10 +144,22 @@ def delete_source(source: str, client: QdrantClient | None = None) -> None:
     logger.debug("Deleted existing vectors for source '%s'.", source)
 
 
-@lru_cache(maxsize=1)
-def get_docstore() -> PickleFileStore:
-    """The parent-document store, used to expand child chunks back to full sections."""
+@lru_cache(maxsize=32)
+def get_docstore(tenant_id: str = "default"):
+    """The parent-document store, used to expand child chunks back to full sections.
+
+    Returns a ``PostgresDocStore`` scoped to ``tenant_id`` when ``DATABASE_URL`` is
+    configured (production), or a ``PickleFileStore`` for local dev without Postgres.
+    """
     settings = get_settings()
+    if settings.database_url:
+        from src.db.postgres_store import PostgresDocStore
+        from src.db.schema import init_db
+
+        init_db(settings.database_url)
+        return PostgresDocStore(settings.database_url, tenant_id=tenant_id)
+
+    logger.info("Using PickleFileStore (DATABASE_URL not set — local dev mode).")
     os.makedirs(settings.doc_store_dir, exist_ok=True)
     return PickleFileStore(settings.doc_store_dir)
 
@@ -163,20 +176,25 @@ def get_vectorstore() -> QdrantVectorStore:
     )
 
 
-@lru_cache(maxsize=1)
-def get_retriever() -> ParentDocumentRetriever:
-    """Dense retriever: matches child chunks, returns their parent sections."""
+@lru_cache(maxsize=32)
+def get_retriever(tenant_id: str = "default") -> ParentDocumentRetriever:
+    """Dense retriever: matches child chunks, returns their parent sections.
+
+    Scoped to ``tenant_id`` via the docstore: child chunks whose parent belongs to
+    another tenant resolve to ``None`` and are dropped, isolating tenants even though
+    the underlying Qdrant collection is shared.
+    """
     settings = get_settings()
     parent_splitter, child_splitter = get_splitters()
 
     logger.info(
-        "Setting up ParentDocumentRetriever (fetch_k=%d, doc_store=%s).",
+        "Setting up ParentDocumentRetriever (tenant=%s, fetch_k=%d).",
+        tenant_id,
         settings.vector_fetch_k,
-        settings.doc_store_dir,
     )
     return ParentDocumentRetriever(
         vectorstore=get_vectorstore(),
-        docstore=get_docstore(),
+        docstore=get_docstore(tenant_id),
         child_splitter=child_splitter,
         parent_splitter=parent_splitter,
         search_kwargs={"k": settings.vector_fetch_k},

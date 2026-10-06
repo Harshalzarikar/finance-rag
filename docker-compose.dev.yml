@@ -1,0 +1,24 @@
+# Local development overrides — publish service ports and keep HTTP on :80.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+#
+# Production (no debug ports, TLS when SITE_DOMAIN is set):
+#
+#   docker compose up -d --build
+
+services:
+  api:
+    ports:
+      - "${API_PORT:-8000}:8000"
+
+  postgres:
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+  redis:
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+
+  qdrant:
+    ports:
+      - "${QDRANT_HTTP_PORT:-6333}:6333"

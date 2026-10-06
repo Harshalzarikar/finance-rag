@@ -1,0 +1,114 @@
+{
+  "_README": [
+    "Auto-generated golden query template.",
+    "For each entry, read the snippet and write a query that the snippet answers.",
+    "Then copy the finished entries into golden_queries.json."
+  ],
+  "queries": [
+    {
+      "query": "[WRITE A QUESTION ABOUT: 0809.0241v2.pdf page 5]",
+      "relevant_sources": [
+        "0809.0241v2.pdf"
+      ],
+      "_snippet_hint": "where C (Sd) is a cohesion function and K is the normalising constant. Equation (3) is referred to as the product distribution for partitions. The cohesions represent prior weights on group formation and formalise our opinion on how tightly clustered the elements of Sd would be."
+    },
+    {
+      "query": "[WRITE A QUESTION ABOUT: 0809.0241v2.pdf page 13]",
+      "relevant_sources": [
+        "0809.0241v2.pdf"
+      ],
+      "_snippet_hint": "In the examples below we use the following values of the hyperparameters. In models (5), (7) and (9) we set m = 0, while τ0<sup>2=103in(5).Thechoice</sup> for m can be motivated by the fact that in VaR estimation for short time horizon, typically from one day until one week, the value of the mean is usually neglected, see e.g. Mina and Xiao (2001). In the Inverted Gamma distribution we set λ0 = 0.0101 and ν0 = 2.01. With these choices we have prior expectation and variance 0.01 for σ<sup>2</sup>"
+    },
+    {
+      "query": "[WRITE A QUESTION ABOUT: 0803.3590v1.pdf page 10]",
+      "relevant_sources": [
+        "0803.3590v1.pdf"
+      ],
+      "_snippet_hint": "We introduce the following game: sitting on the axis, the particle can either reach the bisector or it can move up the axis by ǫ. As the particle needs 4<sup>k</sup> /(2ǫ)<sup>1</sup> steps to reach the bisector, but only one step to go up, the success probability is small. If we should not success, we have another chance at (0, 4<sup>k</sup> + ǫ) (even if the probability for success is smaller there) and so on, until we reach M<sup>+</sup> (k). It is well known that the probability of an one-di"
+    },
+    {
+      "query": "[WRITE A QUESTION ABOUT: 0803.3590v1.pdf page 6]",
+      "relevant_sources": [
+        "0803.3590v1.pdf"
+      ],
+      "_snippet_hint": "In the following it will be of great importance to understand, how the particle moves exactly, while Φ<sup>ǫ</sup> i<sup>= (x, y)jumpstoΦǫ</sup> i+1<sup>(Figure3).Atfirst,ajumpofsize</sup> ǫ happens at time σ¯i. The position afterwards is either (x + ǫ, (y − ǫ) ∨ 0) or ((x − ǫ) ∨ 0, y + ǫ) with probability 1/2 each. Let us call this new position (x<sup>′</sup> , y<sup>′</sup> ). Before the next jump happens at time σ¯i+1, the particle drifts in direction of the origin. If it reaches one of the a"
+    },
+    {
+      "query": "[WRITE A QUESTION ABOUT: 0804.1837v1.pdf page 4]",
+      "relevant_sources": [
+        "0804.1837v1.pdf"
+      ],
+      "_snippet_hint": "Remarks. (i) The random variable yC<sup>(N)</sup> (t) converges as N →∞ to a deterministic quantity yC(t). It implies that if N is large enough, the scaled trajectory provides us with fluctuation-free information. If we try to know the sales rate of each product by counting the sales for a certain period of time, we cannot avoid fluctuation. The more precise data we want, the more time is needed to count the sales, especially for items that rarely sell, say, once a month. This proposition ensure"
+    },
+    {
+      "query": "[WRITE A QUESTION ABOUT: 0804.1837v1.pdf page 8]",
+      "relevant_sources": [
+        "0804.1837v1.pdf"
+      ],
+      "_snippet_hint": "The exponent b (−1/b corresponds to the Pareto slope parameter) is crucial in the analysis of economic impact of the retail business in question. In fact, previous studies using the ranking numbers at the online bookstores [Chevalier etal., 2003, Brynjolfsson etal., 2003] use the data for extracting the exponent b, which then was used to study various aspects of economic impact of the online bookstores. An intuitive meaning of the exponent b can be seen, for example, by taking ratio of (7) for i"
+    },
+    {
+      "query": "[WRITE A QUESTION ABOUT: 0808.3339v2.pdf page 5]",
+      "relevant_sources": [
+        "0808.3339v2.pdf"
+      ],
+      "_snippet_hint": "FIG. 5: Estimated optimal potential forms by the minimum information criterion procedure in the yen-dollar exchange rates of 1998. Potential functions are estimated for periods shown in I, II, III, and IV. In these figures, we show directly observed potential functions (•), the optimal potential forms assuming the normal distribution (thin line) to the term of f (t)."
+    },
+    {
+      "query": "[WRITE A QUESTION ABOUT: 0808.3339v2.pdf page 3]",
+      "relevant_sources": [
+        "0808.3339v2.pdf"
+      ],
+      "_snippet_hint": "FIG. 2: Examples of estimated potential functions. For given yen-dollar rates, Fig. 2a and Fig. 2d, the relations between P (t) (heavy line) and PM (t) (thin line) are observed as shown in Fig. 2b and Fig. 2e, respectively. The potential functions, Fig. 2c and Fig. 2f, are estimated by integrating the plots of the lower diagram of Fig. 1"
+    },
+    {
+      "query": "[WRITE A QUESTION ABOUT: 0712.3537v1.pdf page 1]",
+      "relevant_sources": [
+        "0712.3537v1.pdf"
+      ],
+      "_snippet_hint": "In this article we present a continuous time model for natural gas and crude oil future prices. Its main feature is the possibility to link both energies in the long term and in the short term. For each energy, the future returns are represented as the sum of volatility functions driven by motions. Under the risk neutral probability, the motions of both energies are correlated Brownian motions while under the historical probability, they are cointegrated by a Vectorial Error Correction Model. Ou"
+    },
+    {
+      "query": "[WRITE A QUESTION ABOUT: 0712.3537v1.pdf page 22]",
+      "relevant_sources": [
+        "0712.3537v1.pdf"
+      ],
+      "_snippet_hint": "## **Motions Xt** \n\n\n\n<!-- Start of picture text -->\nX1 gas<br>X2 gas<br>X3 gas<br>X1 crude<br>X2 crude<br>X3 crude<br>2004 2005 2006 2007<br>quotation dates<br>2<br>0<br>−2<br>−4<br>−6<br><!-- End of picture text -->"
+    },
+    {
+      "query": "[WRITE A QUESTION ABOUT: 0812.0033v2.pdf page 1]",
+      "relevant_sources": [
+        "0812.0033v2.pdf"
+      ],
+      "_snippet_hint": "In financial terms, stochastic integration using general predictable integrands translates into allowing for continuous trading in the market. Its theoretical importance notwithstanding, since it allows for existence and elegant representations of optimal wealth processes, continuous trading is but an ideal approximation. In reality, agents in the market can only use simple finite combinations of buy-and-hold strategies. It is therefore natural to question the practical usefulness of such modeli"
+    },
+    {
+      "query": "[WRITE A QUESTION ABOUT: 0812.0033v2.pdf page 2]",
+      "relevant_sources": [
+        "0812.0033v2.pdf"
+      ],
+      "_snippet_hint": "1.2. Trading via simple no-short-sales strategies. In the market with the discounted assetprice processes described above, economic agents can trade in order to reallocate their wealth. Realistic trading consists of finite combinations of buy-and-hold strategies. We model this by considering processes of the form θ :=<sup>�n</sup> j=1<sup>ϑτ</sup> j−1<sup>I</sup><sup>**]**τ</sup> j−1<sup>,τ</sup> j<sup>**]**,whereeachτj,j=0, . . . , n,isafinite</sup> stopping time with 0 = τ0 < τ1 < . . . < τn,"
+    },
+    {
+      "query": "[WRITE A QUESTION ABOUT: 0705.3760v1.pdf page 20]",
+      "relevant_sources": [
+        "0705.3760v1.pdf"
+      ],
+      "_snippet_hint": "### The case β1 = 0 \n\nSuppose in the following that β1 = 0, which means that the external risk and the price process are only correlated via the drift part. Notice that in this case πt<sup>♯= π</sup> t<sup>∗=g(</sup> ηβ<sup>t,X</sup> 2<sup>t), and</sup> in particular the optimal strategy π<sup>∗</sup> does not depend on the structure of the derivative F (XT ). We also assume that g is such that the stochastic integral of g(·, X) relative to B is defined. This is guaranteed for instance if g is b"
+    },
+    {
+      "query": "[WRITE A QUESTION ABOUT: 0705.3760v1.pdf page 24]",
+      "relevant_sources": [
+        "0705.3760v1.pdf"
+      ],
+      "_snippet_hint": "is also a risk measure for any γ > 0 (see Barrieu, El Karoui [2]). It measures the risk by taking into account the cross hedging strategies with initial capital v0 = 0. We call mγ therefore the cross modified risk measure."
+    },
+    {
+      "query": "[WRITE A QUESTION ABOUT: 0812.0556v2.pdf page 4]",
+      "relevant_sources": [
+        "0812.0556v2.pdf"
+      ],
+      "_snippet_hint": ". Let us now analyse the meaning of (3) and (4). The case of σt is somewhat simpler since when σa̸ = σb we may speak of a (elementary) stochastic volatility market model with just two possible volatility levels. The meaning of the change in µt admits several interpretations [18, 19, 25], but we will concentrate our attention in the existence of two different (continuous-time) dividend pay-off regimes, µt = µ˜t − δt,"
+    }
+  ]
+}

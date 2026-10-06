@@ -25,7 +25,7 @@ def test_root_describes_the_service(client):
     response = client.get("/")
 
     assert response.status_code == 200
-    assert response.json()["service"] == "Quantitative Finance RAG API"
+    assert response.json()["service"] == "Policy Intelligence RAG API"
 
 
 def test_liveness_does_not_require_authentication(client):
@@ -41,7 +41,7 @@ def test_chat_without_a_key_is_rejected(client):
     response = client.post("/chat", json={"query": "hello"})
 
     assert response.status_code == 401
-    assert response.headers["WWW-Authenticate"] == "ApiKey"
+    assert response.headers["WWW-Authenticate"] in {"ApiKey", "Bearer"}
 
 
 def test_chat_with_a_wrong_key_is_rejected(client):
@@ -52,9 +52,64 @@ def test_chat_with_a_wrong_key_is_rejected(client):
 
 def test_authentication_can_be_disabled_by_configuration(client, monkeypatch):
     monkeypatch.setenv("API_KEYS", "")
+    monkeypatch.setenv("DATABASE_URL", "")
     get_settings.cache_clear()
 
     assert client.post("/chat", json={"query": "hello"}).status_code == 200
+
+
+def test_chat_requires_tenant_api_key_when_postgres_is_enabled(client, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://raguser:ragpassword@localhost:5432/ragdb")
+    monkeypatch.setenv("API_KEYS", "")
+    get_settings.cache_clear()
+
+    response = client.post("/chat", json={"query": "hello"})
+
+    assert response.status_code == 401
+    assert "Sign in" in response.json()["detail"] or "X-API-Key" in response.json()["detail"]
+
+
+def test_login_rejects_invalid_credentials(client, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://raguser:ragpassword@localhost:5432/ragdb")
+    get_settings.cache_clear()
+    monkeypatch.setattr("src.db.user_store.authenticate_user", lambda *_a, **_k: None)
+
+    response = client.post("/auth/login", json={"email": "user@acme.com", "password": "wrongpass1"})
+
+    assert response.status_code == 401
+
+
+def test_signup_disabled_when_configured_off(client, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://raguser:ragpassword@localhost:5432/ragdb")
+    monkeypatch.setenv("PUBLIC_SIGNUP_ENABLED", "false")
+    get_settings.cache_clear()
+
+    response = client.post(
+        "/auth/signup",
+        json={
+            "email": "new@acme.com",
+            "password": "Secret123!",
+            "tenant_id": "acme-insurance",
+            "full_name": "New User",
+        },
+    )
+
+    assert response.status_code == 403
+
+
+def test_tenants_me_requires_bearer_session(client, monkeypatch, auth_headers):
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://raguser:ragpassword@localhost:5432/ragdb")
+    get_settings.cache_clear()
+    monkeypatch.setattr(
+        "src.db.tenant_store.get_tenant_by_api_key",
+        lambda _url, key: type("T", (), {"id": "acme", "name": "Acme", "plan": "pro", "is_active": True})()
+        if key == auth_headers["X-API-Key"]
+        else None,
+    )
+
+    response = client.get("/tenants/me", headers=auth_headers)
+
+    assert response.status_code == 401
 
 
 def test_metrics_is_not_public(client):

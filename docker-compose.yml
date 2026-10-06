@@ -1,16 +1,29 @@
 # Production stack for the custom RAG service.
 #
-#   api       FastAPI: hybrid retrieval, reranking, generation, semantic cache
-#   qdrant    vector store (server mode — embedded mode is single-process only)
-#   redis     Redis Stack: semantic-cache vector index + rate-limit counters
-#   frontend  Caddy serving the built SPA and proxying /api -> api:8000
-#   ingest    one-shot ingestion job, run explicitly with --profile tools
+#   api       FastAPI (internal only — reach via frontend /api proxy)
+#   qdrant    vector store
+#   redis     semantic cache + rate limits
+#   postgres  document store + FTS
+#   frontend  Caddy: SPA + TLS + /api reverse proxy (only public entrypoint)
 #
-# Usage:
-#   docker compose up -d --build
-#   docker compose --profile tools run --rm ingest --limit 5
+# Local dev with published ports:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+#
+# Production:
+#   1. Copy .env.example → .env and run:  python scripts/setup_production_env.py ...
+#   2. Set APP_ENV=production, SITE_DOMAIN, CADDY_EMAIL, CORS_ORIGINS
+#   3. docker compose up -d --build
 
 name: advance-rag
+
+x-api-db-env: &api_db_env
+  QDRANT_URL: http://qdrant:6333
+  QDRANT_API_KEY: ""
+  REDIS_URL: redis://redis:6379/0
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpassword}@postgres:5432/${POSTGRES_DB:-ragdb}
+  DOC_STORE_DIR: /data/doc_store
+  BM25_INDEX_FILE: /data/bm25_index.pkl
+  INGESTION_MANIFEST_FILE: /data/ingestion_manifest.json
 
 services:
   api:
@@ -20,26 +33,16 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      # Container-internal addresses win over whatever .env contains, so the
-      # same .env works for local development and for the compose stack.
-      QDRANT_URL: http://qdrant:6333
-      # Cleared explicitly: .env may hold a Qdrant Cloud key, and sending it to
-      # the local server produces an "insecure connection" warning.
-      QDRANT_API_KEY: ""
-      REDIS_URL: redis://redis:6379/0
-      DOC_STORE_DIR: /data/doc_store
-      BM25_INDEX_FILE: /data/bm25_index.pkl
-      INGESTION_MANIFEST_FILE: /data/ingestion_manifest.json
+      <<: *api_db_env
     volumes:
       - rag_data:/data
-    ports:
-      # Published for direct/debug access. In production, front the stack with
-      # TLS (see README) and stop publishing this.
-      - "${API_PORT:-8000}:8000"
+    # No host port — traffic enters through the frontend Caddy proxy only.
     depends_on:
       qdrant:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/ready"]
@@ -54,14 +57,10 @@ services:
         max-file: "3"
 
   qdrant:
-    # Kept aligned with the qdrant-client pin in requirements.txt: the client
-    # warns when the server's minor version differs by more than one.
     image: qdrant/qdrant:v1.18.3
     restart: unless-stopped
     volumes:
       - qdrant_data:/qdrant/storage
-    ports:
-      - "${QDRANT_HTTP_PORT:-6333}:6333"
     healthcheck:
       test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
       interval: 10s
@@ -75,19 +74,37 @@ services:
         max-file: "3"
 
   redis:
-    # redis-stack-server is required: the plain `redis` image has no vector index.
     image: redis/redis-stack-server:7.4.0-v3
     restart: unless-stopped
     volumes:
       - redis_data:/data
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-raguser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-ragdb}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-raguser} -d ${POSTGRES_DB:-ragdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     logging:
       driver: json-file
       options:
@@ -101,8 +118,12 @@ services:
         VITE_API_URL: /api
     image: advance-rag-frontend:latest
     restart: unless-stopped
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:-}
+      CADDY_EMAIL: ${CADDY_EMAIL:-}
     ports:
-      - "${WEB_PORT:-80}:80"
+      - "${WEB_HTTP_PORT:-80}:80"
+      - "${WEB_HTTPS_PORT:-443}:443"
     depends_on:
       api:
         condition: service_healthy
@@ -120,26 +141,43 @@ services:
     image: advance-rag-api:latest
     env_file: .env
     environment:
-      QDRANT_URL: http://qdrant:6333
-      QDRANT_API_KEY: ""
-      REDIS_URL: redis://redis:6379/0
+      <<: *api_db_env
       RAW_PDFS_DIR: /pdfs
-      DOC_STORE_DIR: /data/doc_store
-      BM25_INDEX_FILE: /data/bm25_index.pkl
-      INGESTION_MANIFEST_FILE: /data/ingestion_manifest.json
     volumes:
       - rag_data:/data
-      # Mount the corpus read-only; ingestion never writes to it.
       - ./real_pdfs:/pdfs:ro
-    # entrypoint (not command) so that `docker compose run ingest --limit 5`
-    # appends the flag to the script instead of replacing the whole command.
     entrypoint: ["python", "scripts/ingest.py"]
     depends_on:
       qdrant:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     restart: "no"
+
+  worker:
+    profiles: ["tools"]
+    build:
+      context: .
+    image: advance-rag-api:latest
+    env_file: .env
+    environment:
+      <<: *api_db_env
+      RAW_PDFS_DIR: /pdfs
+    volumes:
+      - rag_data:/data
+      - ./real_pdfs:/pdfs:ro
+    entrypoint: ["celery", "-A", "src.ingestion.tasks", "worker", "--loglevel=info", "--concurrency=2"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   rag_data:
   qdrant_data:
   redis_data:
+  pg_data:

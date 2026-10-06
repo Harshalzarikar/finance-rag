@@ -176,13 +176,17 @@ def chunk_for_bm25(documents: Sequence[Document], parent_splitter: Any, child_sp
     return child_splitter.split_documents(parents)
 
 
-def index_documents(pdf_path: str, documents: Sequence[Document], retriever: Any) -> list[Document]:
+def index_documents(
+    pdf_path: str, documents: Sequence[Document], retriever: Any, tenant_id: str = "default"
+) -> list[Document]:
     """Index parsed pages, returning the child chunks to add to the keyword index.
 
     Any vectors previously stored for this file are dropped first, so re-ingesting
     a changed PDF replaces its content instead of duplicating it.
     """
     delete_source(os.path.basename(pdf_path))
+    for document in documents:
+        document.metadata["tenant_id"] = tenant_id
     retriever.add_documents(list(documents), ids=None)
     return chunk_for_bm25(documents, retriever.parent_splitter, retriever.child_splitter)
 
@@ -254,6 +258,15 @@ def reset_stores() -> None:
         client.delete_collection(settings.qdrant_collection_name)
         logger.info("Deleted Qdrant collection '%s'.", settings.qdrant_collection_name)
 
+    if settings.database_url:
+        from src.db.schema import ChildChunkFTS, ParentDocument, get_session_factory
+
+        with get_session_factory(settings.database_url)() as session:
+            session.query(ChildChunkFTS).delete()
+            session.query(ParentDocument).delete()
+            session.commit()
+        logger.info("Cleared Postgres parent_documents and child_chunks_fts.")
+
     if os.path.isdir(settings.doc_store_dir):
         shutil.rmtree(settings.doc_store_dir, onerror=_rmtree_onerror)
         logger.info("Wiped %s", settings.doc_store_dir)
@@ -300,6 +313,30 @@ def rebuild_bm25(
         bm25.save_index(index, settings.bm25_index_file)
 
 
+def write_postgres_fts(
+    database_url: str, new_chunks: Sequence[Document], replaced_sources: set[str], tenant_id: str = "default"
+) -> None:
+    """Write child chunks to the Postgres FTS index (production keyword index).
+
+    Mirrors the Celery worker's ``_pg_upsert``: stale rows for re-ingested sources
+    are deleted first so re-ingestion stays idempotent, then the fresh chunks are
+    inserted. Used when ``DATABASE_URL`` is set, because the runtime then reads
+    keyword hits from ``child_chunks_fts`` (``PostgresBM25Retriever``) rather than
+    the local ``bm25_index.pkl``.
+    """
+    from src.db.pg_bm25 import delete_chunks_by_source, insert_chunks
+
+    for source in replaced_sources:
+        delete_chunks_by_source(database_url, source, tenant_id=tenant_id)
+    if new_chunks:
+        insert_chunks(database_url, new_chunks, tenant_id=tenant_id)
+    logger.info(
+        "Postgres FTS updated: %d chunks across %d replaced source(s).",
+        len(new_chunks),
+        len(replaced_sources),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -321,7 +358,7 @@ def run_ingestion(args: argparse.Namespace) -> int:
     logger.info("Found %d PDF(s) to ingest (concurrency=%d).", len(pdf_paths), args.concurrency)
 
     ensure_collection()
-    retriever = get_retriever()
+    retriever = get_retriever(args.tenant_id)
     manifest = load_manifest(settings.ingestion_manifest_file)
 
     payload = bm25.load_raw(settings.bm25_index_file)
@@ -359,7 +396,7 @@ def run_ingestion(args: argparse.Namespace) -> int:
 
         logger.info("[%d/%d] Indexing %s", position, len(pdf_paths), name)
         try:
-            children = index_documents(pdf_path, documents or [], retriever)
+            children = index_documents(pdf_path, documents or [], retriever, args.tenant_id)
         except Exception as exc:  # noqa: BLE001 - keep going, report at the end
             logger.exception("[%d/%d] Failed to index %s: %s", position, len(pdf_paths), name, exc)
             failed += 1
@@ -389,7 +426,10 @@ def run_ingestion(args: argparse.Namespace) -> int:
     )
 
     if new_chunks or replaced_sources:
-        rebuild_bm25(existing_corpus, existing_metadatas, replaced_sources, new_chunks)
+        if settings.database_url:
+            write_postgres_fts(settings.database_url, new_chunks, replaced_sources, args.tenant_id)
+        else:
+            rebuild_bm25(existing_corpus, existing_metadatas, replaced_sources, new_chunks)
 
     return 1 if failed else 0
 
@@ -402,13 +442,19 @@ def verify() -> int:
     expected_chunks = sum(int(entry.get("chunks", 0)) for entry in manifest.values())
     actual_points = count_points(get_qdrant_client())
 
-    index = bm25.load_index(settings.bm25_index_file, k=settings.bm25_k)
-    bm25_chunks = len(index.corpus) if index is not None else 0
+    if settings.database_url:
+        from src.db.schema import ChildChunkFTS, get_session_factory
+
+        with get_session_factory(settings.database_url)() as session:
+            bm25_chunks = session.query(ChildChunkFTS).count()
+    else:
+        index = bm25.load_index(settings.bm25_index_file, k=settings.bm25_k)
+        bm25_chunks = len(index.corpus) if index is not None else 0
 
     logger.info("Manifest files  : %d", len(manifest))
     logger.info("Expected chunks : %d", expected_chunks)
     logger.info("Qdrant points   : %d", actual_points)
-    logger.info("BM25 chunks     : %d", bm25_chunks)
+    logger.info("Keyword chunks  : %d", bm25_chunks)
 
     drift = False
     if not manifest:
@@ -451,6 +497,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reset", action="store_true", help="Wipe existing indexes before ingesting.")
     parser.add_argument("--limit", type=int, default=None, help="Process at most N PDFs.")
     parser.add_argument("--offset", type=int, default=0, help="Skip the first N PDFs.")
+    parser.add_argument("--tenant-id", type=str, default="default", help="Tenant the documents belong to.")
     parser.add_argument(
         "--concurrency",
         type=int,

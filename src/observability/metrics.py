@@ -16,14 +16,14 @@ logger = logging.getLogger(__name__)
 
 # Pipeline decision counters
 _PIPELINE_DECISIONS = Counter(
-    "rag_pipeline_decisions_total",
-    "Number of times the pipeline reached a specific termination decision",
-    ["decision"]
+    "rag_pipeline_decisions_total", "Number of times the pipeline reached a specific termination decision", ["decision"]
 )
+
 
 def rag_counters(decision: str) -> None:
     """Increment a pipeline decision counter (e.g. answered, declined)."""
     _PIPELINE_DECISIONS.labels(decision=decision).inc()
+
 
 # Cache counters are read from the live cache at scrape time rather than mirrored
 # into separate Prometheus counters, so there is a single source of truth.

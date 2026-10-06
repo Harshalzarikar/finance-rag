@@ -1,14 +1,16 @@
 import re
 from dataclasses import dataclass
 
+
 @dataclass
 class QueryGuardResult:
     allowed: bool
     reason: str | None = None
 
+
 class QueryGuard:
     """Lightweight regex-based query safety guardrail."""
-    
+
     # Patterns that suggest prompt injection, jailbreaking, or ignoring instructions
     _SUSPICIOUS_PATTERNS = [
         re.compile(r"ignore\s+(?:all\s+)?(?:previous\s+)?(?:instructions|directions|prompts)", re.IGNORECASE),
@@ -28,7 +30,7 @@ class QueryGuard:
             if pattern.search(query):
                 return QueryGuardResult(
                     allowed=False,
-                    reason="Query contains potentially adversarial instructions or prompt injection attempts."
+                    reason="Query contains potentially adversarial instructions or prompt injection attempts.",
                 )
-                
+
         return QueryGuardResult(allowed=True)

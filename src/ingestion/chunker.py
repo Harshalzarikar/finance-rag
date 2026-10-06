@@ -105,10 +105,27 @@ class DeepDocChildSplitter(TextSplitter):
         )
 
     def split_text(self, text: str) -> List[str]:
-        return self._splitter.split_text(text)
+        chunks = self._splitter.split_text(text)
+        seen = set()
+        clean = []
+        for c in chunks:
+            c_strip = c.strip()
+            if len(c_strip) >= 50 and c_strip not in seen:
+                seen.add(c_strip)
+                clean.append(c_strip)
+        return clean
 
     def split_documents(self, documents: Iterable[Document]) -> List[Document]:
-        return self._splitter.split_documents(documents)
+        texts, metadatas = [], []
+        for doc in documents:
+            texts.append(doc.page_content)
+            metadatas.append(doc.metadata)
+
+        results = []
+        for text, metadata in zip(texts, metadatas):
+            for chunk in self.split_text(text):
+                results.append(Document(page_content=chunk, metadata=metadata))
+        return results
 
 
 # ---------------------------------------------------------------------------

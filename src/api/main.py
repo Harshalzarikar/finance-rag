@@ -12,6 +12,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import anyio.to_thread
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -27,21 +28,33 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Configure logging and warm the pipeline without preventing startup."""
+    """Configure logging, initialise the database schema, and warm the pipeline."""
     settings = get_settings()
     configure_logging(settings.log_level, settings.log_json)
     logger.info(
-        "Starting Quantitative Finance RAG API (model=%s, auth=%s, cache=%s, qdrant=%s)",
+        "Starting Policy Intelligence RAG API (env=%s, model=%s, auth=%s, cache=%s, db=%s)",
+        settings.app_env,
         settings.embedding_model,
         "on" if settings.auth_enabled else "off",
         "on" if settings.semantic_cache_enabled else "off",
-        settings.qdrant_url or settings.qdrant_db_dir,
+        "postgres" if settings.database_url else "local-files",
     )
 
+    # ---- Postgres schema init (idempotent) ----
+    if settings.database_url:
+        try:
+            from src.db.schema import init_db
+
+            await anyio.to_thread.run_sync(init_db, settings.database_url)
+            logger.info("PostgreSQL schema initialised.")
+        except Exception:  # noqa: BLE001
+            logger.exception("PostgreSQL schema init failed — DB features may be unavailable.")
+
+    # ---- Warm up the RAG pipeline ----
     try:
         get_rag_pipeline()
         logger.info("RAG pipeline warmed up.")
-    except Exception:  # noqa: BLE001 - degrade instead of refusing to serve
+    except Exception:  # noqa: BLE001
         logger.exception("RAG pipeline failed to initialise — /health/ready will report degraded.")
 
     yield
@@ -65,12 +78,12 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
+        allow_origins=settings.effective_cors_origins,
         # Credentials are not used (auth is header-based), and combining a
         # wildcard origin with credentials is unsafe.
         allow_credentials=False,
         allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Content-Type", "X-API-Key", "X-Request-ID"],
+        allow_headers=["Content-Type", "Authorization", "X-API-Key", "X-Request-ID"],
         expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining"],
     )
 

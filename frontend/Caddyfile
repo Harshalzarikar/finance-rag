@@ -1,11 +1,22 @@
-# Serves the built SPA and reverse-proxies the API so the browser talks to a
-# single origin (no CORS, no separate API URL to configure).
-:80 {
+# Serves the SPA and reverse-proxies /api to the internal API service.
+#
+# Local (HTTP only): leave SITE_DOMAIN empty → listens on :80
+# Production (HTTPS):  set SITE_DOMAIN=app.example.com and CADDY_EMAIL=you@example.com
+#                      Caddy obtains and renews a Let's Encrypt certificate.
+
+{
+	email {$CADDY_EMAIL}
+}
+
+{$SITE_DOMAIN::80} {
 	encode gzip
 
 	handle /api/* {
 		uri strip_prefix /api
-		reverse_proxy api:8000
+		reverse_proxy api:8000 {
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+		}
 	}
 
 	handle {

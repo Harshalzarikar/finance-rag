@@ -71,15 +71,21 @@ def _check_embeddings() -> DependencyStatus:
 def _check_bm25(pipeline: RAGPipeline) -> DependencyStatus:
     settings = get_settings()
     if not pipeline.retriever.hybrid_enabled:
+        if settings.database_url:
+            detail = "Postgres full-text index unavailable — retrieval is dense-only"
+        else:
+            detail = f"BM25 index missing at {settings.bm25_index_file} — retrieval is dense-only"
+        return DependencyStatus(name="bm25", ok=False, required=False, detail=detail)
+    if settings.database_url:
         return DependencyStatus(
             name="bm25",
-            ok=False,
+            ok=True,
             required=False,
-            detail=f"index missing or unloaded at {settings.bm25_index_file} — retrieval is dense-only",
+            detail="Postgres FTS keyword index (tenant-scoped)",
         )
     retriever = pipeline.retriever.bm25_retriever
     chunks = len(getattr(retriever, "corpus", []))
-    return DependencyStatus(name="bm25", ok=True, required=False, detail=f"{chunks} chunks indexed")
+    return DependencyStatus(name="bm25", ok=True, required=False, detail=f"{chunks} chunks in pickle index")
 
 
 def _check_redis() -> DependencyStatus:

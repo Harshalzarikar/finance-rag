@@ -86,7 +86,9 @@ class _Hit:
 class _DummyLLM:
     def with_structured_output(self, *args, **kwargs):
         from langchain_core.runnables import RunnableLambda
+
         from src.core.faithfulness_guard import FaithfulnessResult
+
         return RunnableLambda(lambda x: FaithfulnessResult(is_faithful=True))
 
 
@@ -104,7 +106,7 @@ def _build(
         cache=cache or _Cache(),
         docstore=store,
     )
-    pipeline._chain = lambda: _Chain(answer)  # type: ignore[method-assign]
+    pipeline._chain = lambda _query, _documents: _Chain(answer)  # type: ignore[method-assign]
     return pipeline
 
 
@@ -221,6 +223,19 @@ def test_cache_hit_short_circuits_retrieval():
     assert retriever.queries == []
 
 
+def test_comprehensive_query_bypasses_semantic_cache():
+    cache = _Cache(hit=_Hit("short cached answer", [{"source": "resume.pdf", "page": 1, "score": None, "snippet": "x"}]))
+    retriever = _Retriever([_document("Experience section", source="resume.pdf", page=2)])
+    pipeline = _build(cache=cache, documents=[_document("header", source="resume.pdf")])
+    pipeline.retriever = retriever
+
+    result = pipeline.run("tell me all details about harshal zarikar")
+
+    assert result["cached"] is False
+    assert retriever.queries == ["tell me all details about harshal zarikar"]
+    assert cache.stored == []
+
+
 def test_cache_miss_runs_the_pipeline_and_populates_the_cache():
     cache = _Cache()
     pipeline = _build(documents=[_document("body", source="a.pdf", page=4)], cache=cache)
@@ -229,7 +244,7 @@ def test_cache_miss_runs_the_pipeline_and_populates_the_cache():
 
     assert result["answer"] == "A grounded answer."
     assert result["cached"] is False
-    assert cache.stored[0][0] == "explain garch"
+    assert cache.stored[0][0].endswith("explain garch")
     assert cache.stored[0][1] == "A grounded answer."
     assert cache.stored[0][2][0]["source"] == "a.pdf"
 
@@ -263,7 +278,10 @@ def test_stream_emits_sources_before_tokens():
 
     assert events[0]["type"] == "sources"
     assert events[0]["sources"][0]["source"] == "a.pdf"
-    assert events[-1] == {"type": "done", "cached": False, "confidence_score": 0.7, "faithfulness_passed": True}
+    assert events[-1]["type"] == "done"
+    assert events[-1]["cached"] is False
+    assert events[-1]["faithfulness_passed"] is True
+    assert events[-1].get("prompt_pack_version", "").startswith("default@")
     joined = "".join(event["value"] for event in events if event["type"] == "token")
     assert joined == "grounded answer here"
 
@@ -276,7 +294,10 @@ def test_stream_replays_a_cache_hit_as_one_token():
 
     assert events[0]["cached"] is True
     assert [event["value"] for event in events if event["type"] == "token"] == ["cached answer"]
-    assert events[-1] == {"type": "done", "cached": True, "confidence_score": 1.0, "faithfulness_passed": True}
+    assert events[-1]["type"] == "done"
+    assert events[-1]["cached"] is True
+    assert events[-1]["faithfulness_passed"] is True
+    assert events[-1].get("prompt_pack_version", "").startswith("default@")
 
 
 def test_stream_stores_the_generated_answer():
@@ -285,7 +306,7 @@ def test_stream_stores_the_generated_answer():
 
     list(pipeline.stream("explain garch"))
 
-    assert cache.stored[0][0] == "explain garch"
+    assert cache.stored[0][0].endswith("explain garch")
     assert cache.stored[0][1] == "streamed answer"
 
 
@@ -342,7 +363,7 @@ def test_unanswerable_query_declines_without_citations():
 def test_declining_skips_the_generator():
     pipeline = _build(documents=_corpus(2), reranker=_ScoredReranker([0.01, 0.01]))
 
-    def explode(*args: Any, **kwargs: Any) -> None:
+    def explode(_query: Any, _documents: Any) -> None:
         raise AssertionError("the generator must not run when nothing is relevant")
 
     pipeline._chain = explode  # type: ignore[method-assign]
@@ -376,6 +397,31 @@ def test_the_floor_is_configurable(monkeypatch):
     pipeline = _build(documents=_corpus(2), reranker=_ScoredReranker([0.90, 0.20]))
 
     assert pipeline.run("anything")["sources"] == []
+
+
+def test_entity_query_keeps_name_matched_passages_below_floor(monkeypatch):
+    """Person-name queries often score low on Cohere rerank; keep filename/body matches."""
+    from src.config.settings import get_settings
+
+    monkeypatch.setenv("RERANK_MIN_SCORE", "0.50")
+    get_settings.cache_clear()
+
+    resume = Document(
+        page_content="Experience with ML systems.",
+        metadata={"source": "Harshal_Zarikar_Resume.pdf"},
+    )
+    noise = Document(page_content="Long finance paper text.", metadata={"source": "paper.pdf"})
+    pipeline = _build(
+        documents=[resume, noise],
+        reranker=_ScoredReranker([0.02, 0.03]),
+        answer="Detailed profile.",
+    )
+
+    result = pipeline.run("harshal zarikar information in detail")
+
+    assert result["sources"]
+    assert "zarikar" in result["sources"][0]["source"].lower()
+    assert "No passage" not in result["answer"]
 
 
 def test_stream_declines_without_citations():

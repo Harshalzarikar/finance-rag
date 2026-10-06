@@ -8,10 +8,9 @@ context, this guard will catch it.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.language_models import BaseLanguageModel
+from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -37,8 +36,11 @@ Instructions:
 Return a JSON object with a single boolean field "is_faithful". Set it to true if the Answer is fully supported, or false if there is any hallucination.
 """
 
+
 class FaithfulnessResult(BaseModel):
-    is_faithful: bool = Field(description="True if the answer is fully supported by the context, False if it hallucinates.")
+    is_faithful: bool = Field(
+        description="True if the answer is fully supported by the context, False if it hallucinates."
+    )
 
 
 class FaithfulnessGuard:
@@ -46,18 +48,19 @@ class FaithfulnessGuard:
 
     def __init__(self, llm: BaseLanguageModel) -> None:
         self.llm = llm
-        
-        # We try to use structured output if the model supports it. If it's an OSS model 
-        # that doesn't fully support tool calling / with_structured_output well, 
-        # we might need to parse JSON. We'll use with_structured_output for robustness 
+
+        # We try to use structured output if the model supports it. If it's an OSS model
+        # that doesn't fully support tool calling / with_structured_output well,
+        # we might need to parse JSON. We'll use with_structured_output for robustness
         # on supported providers (like Groq/OpenAI).
         self.prompt = ChatPromptTemplate.from_messages([("system", FAITHFULNESS_PROMPT)])
-        
+
         try:
             self.chain = self.prompt | self.llm.with_structured_output(FaithfulnessResult)
         except NotImplementedError:
             # Fallback if the LLM doesn't support structured output out of the box
             from langchain_core.output_parsers import JsonOutputParser
+
             self.chain = self.prompt | self.llm | JsonOutputParser()
 
     def check(self, query: str, context: str, answer: str) -> bool:
@@ -67,20 +70,21 @@ class FaithfulnessGuard:
 
         logger.debug("Running faithfulness check on generated answer.")
         try:
-            result = self.chain.invoke({
-                "context": context,
-                "question": query,
-                "answer": answer
-            })
-            
+            result = self.chain.invoke({"context": context, "question": query, "answer": answer})
+
             # Handle both BaseModel and Dict returns depending on the chain path
-            is_faithful = result.is_faithful if isinstance(result, FaithfulnessResult) else result.get("is_faithful", True)
-            
+            if isinstance(result, FaithfulnessResult):
+                is_faithful = result.is_faithful
+            elif isinstance(result, dict):
+                is_faithful = result.get("is_faithful", True)
+            else:
+                is_faithful = True
+
             if not is_faithful:
                 logger.warning("Faithfulness Guard blocked a hallucinated answer!")
-                
+
             return bool(is_faithful)
-            
+
         except Exception as exc:
             logger.error("Faithfulness Guard failed to run (%s). Failing open (returning True).", exc)
             return True

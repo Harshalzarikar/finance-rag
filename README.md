@@ -62,7 +62,9 @@ Both indexes are built from a single split, so a keyword hit and a dense hit ref
 to the same unit of text and carry the same citation metadata.
 
 See [SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md) for the reasoning behind each
-of these choices.
+of these choices. For a **step-by-step flow** (auth, tenants, ingest, chat, Docker),
+see [PROJECT_FLOW.md](PROJECT_FLOW.md). For **contributing** (layout, lint, tests),
+see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Requirements
 
@@ -181,6 +183,10 @@ thread-safe.
 |---|---|---|
 | `POST /chat` | required | Answer a question, returning citations. |
 | `POST /chat/stream` | required | Same, streamed as Server-Sent Events. |
+| `GET /tenants/me` | required | Returns the authenticated agency profile (used by the SPA login). |
+| `POST /auth/register` | admin | Create a tenant; response includes the raw `api_key` **once**. |
+| `POST /auth/rotate-key` | required | Tenant rotates their own API key. |
+| `POST /documents/upload` | required | Queue a PDF for tenant-scoped ingestion (needs Celery worker). |
 | `GET /health/live` | public | Process liveness. |
 | `GET /health/ready` | public | Probes Qdrant, embeddings, the LLM client, the keyword index, the reranker, and Redis. Returns `503` when a **required** dependency is down. |
 | `GET /metrics` | required | Prometheus exposition, including semantic-cache statistics. |
@@ -195,39 +201,109 @@ Errors are returned as `{"detail": "..."}` with `401` (auth), `422` (validation)
 `429` (rate limit, with `Retry-After`), or `500`. Internal error text is never
 leaked — it goes to the logs, correlated by the `X-Request-ID` response header.
 
-## Deployment
+## Multi-tenant production (how customers get an API key)
 
-```bash
-cp .env.example .env      # then edit: set API_KEYS, provider keys, CORS_ORIGINS
-docker compose up -d --build
-docker compose --profile tools run --rm ingest        # build the indexes
-docker compose restart api                            # load the new keyword index
-curl -fsS localhost:8000/health/ready
+When `DATABASE_URL` is set (Docker Compose does this by default), each **agency**
+is a tenant with its own isolated corpus. Customers never share one global
+`API_KEYS` value — they receive a **per-tenant secret** at onboarding.
+
+```text
+Platform admin (you)                         Agency user (customer)
+        │                                              │
+        ├─ Set ADMIN_API_KEY in .env                   │
+        ├─ Create tenant ──► raw api_key (once) ───────┼─► Paste key in SPA login
+        ├─ Ingest PDFs with --tenant-id <slug>         ├─► Chat / upload in browser
+        └─ Rotate or deactivate via admin CLI/API      └─► POST /auth/rotate-key if compromised
 ```
 
-The stack runs `api`, `qdrant`, `redis`, `frontend` (Caddy), and a one-shot
-`ingest` job behind the `tools` profile.
+**1. Create an agency (admin only)**
 
-> **Restart the API after ingesting.** The retrieval stack is built once per
-> process and cached, so a running `api` container will not pick up a BM25 index
-> created after it started — `/health/ready` reports `bm25` as a non-required
-> failure and retrieval silently runs dense-only. `docker compose restart api`
-> after every ingestion run fixes it.
+```bash
+# CLI (uses DATABASE_URL from .env)
+python scripts/manage_tenants.py create --id acme-insurance --name "Acme Insurance" --plan pro
 
-Additional notes for a real deployment:
+# HTTP (requires X-Admin-Key header, not for browsers)
+curl -s -X POST http://localhost:8000/auth/register \
+  -H "X-Admin-Key: $ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"tenant_id":"acme-insurance","name":"Acme Insurance","plan":"pro"}'
+```
 
-- **TLS.** The frontend container terminates plain HTTP on port 80. Put it behind
-  a TLS terminator (Caddy automatic HTTPS, nginx, or a cloud load balancer), or
-  add a domain to `frontend/Caddyfile` and let Caddy issue a certificate.
-- **Stop publishing the API port.** `API_PORT=8000` is published for debugging.
-  Remove that mapping to force all traffic through the proxy.
-- **Secrets.** `.env` is gitignored; only `.env.example` is committed. Use your
-  platform's secret store (Docker secrets, Vault, SOPS) to inject values in
-  production rather than shipping a `.env` file.
-- **Back up the volumes.** `qdrant_data` (vectors), `redis_data` (cache — safe to
-  lose), and `rag_data` (parent document store + manifest + BM25 index).
-- **Model warmth.** The embedding model is baked into the image at build time, so
-  containers do not need network access to Hugging Face at runtime.
+Copy the printed `api_key` immediately — it is **hashed in Postgres and cannot be
+looked up again**. If it is lost, rotate it:
+
+```bash
+python scripts/manage_tenants.py rotate-key --id acme-insurance
+# or: POST /auth/rotate-key with the old key still valid
+```
+
+**2. Load that tenant's documents**
+
+```bash
+docker compose --profile tools run --rm ingest --tenant-id acme-insurance --limit 10
+# or upload PDFs in the SPA (Upload tab) while signed in with the agency key
+```
+
+**3. Customer uses the web app**
+
+Open `http://localhost:8080` (or your public URL), sign in with the agency key.
+The SPA stores it in `localStorage`, sends it as `X-API-Key` on every `/api/*`
+call, and the API scopes retrieval to that tenant's indexes.
+
+**4. Integrate from another app**
+
+```bash
+curl -s -H "X-API-Key: <agency-key>" -H "Content-Type: application/json" \
+  -d '{"query":"What is delta hedging?"}' \
+  http://localhost:8000/chat
+```
+
+With Postgres enabled, requests **without** `X-API-Key` are rejected — there is no
+anonymous `default` tenant in production.
+
+## Deployment
+
+**Local development** (API and databases published on localhost):
+
+```bash
+cp .env.example .env
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+docker compose --profile tools run --rm ingest --tenant-id your-org --limit 10
+curl -fsS http://localhost:8000/health/ready
+```
+
+**Production (API not exposed; HTTPS via Caddy when `SITE_DOMAIN` is set):**
+
+See **[DEPLOY.md](DEPLOY.md)** for the full public checklist. Quick start:
+
+```powershell
+.\scripts\deploy_production.ps1 -Domain app.example.com -Email ops@example.com -GroqKey "..." -CohereKey "..."
+```
+
+Or manually:
+
+```bash
+python scripts/setup_production_env.py --domain app.example.com --email ops@example.com --force
+python scripts/verify_production_env.py
+docker compose up -d --build
+docker compose --profile tools up -d worker
+curl -fsS https://app.example.com/api/health/ready
+```
+
+With `APP_ENV=production`, the API **refuses to start** if `JWT_SECRET`, `ADMIN_API_KEY`, or
+`POSTGRES_PASSWORD` are missing/weak, if `PUBLIC_SIGNUP_ENABLED=true`, or if `CORS_ORIGINS` is
+localhost-only while Postgres multi-tenancy is enabled.
+
+The stack runs `api` (internal), `qdrant`, `redis`, `postgres`, and `frontend` (public
+entry on ports 80/443). Use `docker-compose.dev.yml` only for local debugging ports.
+
+Additional notes:
+
+- **TLS.** Set `SITE_DOMAIN` and `CADDY_EMAIL` in `.env`; Caddy in the frontend container
+  obtains Let's Encrypt certificates automatically. Leave `SITE_DOMAIN` empty for HTTP on port 80.
+- **Secrets.** Inject via your platform secret store in cloud deploys; never commit `.env`.
+- **Back up volumes.** `pg_data` (tenants + indexes), `qdrant_data` (vectors), `rag_data` (manifest).
+- **Model warmth.** Embeddings are baked into the API image at build time.
 
 ## Quality gates
 
@@ -237,6 +313,16 @@ ruff format --check .   # formatting
 mypy                    # types
 pytest -q               # tests
 ```
+
+### Docker build: `lookup registry-1.docker.io: no such host`
+
+This is a **network/DNS** problem on the machine (Docker cannot reach Docker Hub), not an application bug.
+
+1. Confirm the browser can reach the internet; fix Wi‑Fi/VPN/firewall if needed.
+2. In **Docker Desktop → Settings → Docker Engine**, you can set DNS, e.g. `"dns": ["8.8.8.8", "1.1.1.1"]`, then **Apply & restart**.
+3. Retry: `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build`
+
+The API `Dockerfile` no longer uses `# syntax=docker/dockerfile:1`, so BuildKit does not need an extra pull of `docker/dockerfile:1` before building. You still need Hub access for base images (`python:3.13-slim`, `node:22-alpine`, `caddy:2-alpine`, etc.).
 
 `make check` runs all four. The test suite needs no network: every external client
 is stubbed.

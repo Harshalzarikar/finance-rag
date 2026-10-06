@@ -54,16 +54,35 @@ class HybridSearchService:
         return documents
 
 
-@lru_cache(maxsize=1)
-def get_hybrid_search() -> HybridSearchService:
-    """Build the hybrid retriever once per process."""
+@lru_cache(maxsize=32)
+def get_hybrid_search(tenant_id: str = "default") -> HybridSearchService:
+    """Build a tenant-scoped hybrid retriever.
+
+    Keyword retriever selection:
+    - ``DATABASE_URL`` set → ``PostgresBM25Retriever`` (production, scalable)
+    - ``DATABASE_URL`` not set → ``PersistedBM25Retriever`` from pickle file (local dev)
+    """
     settings = get_settings()
-    bm25_retriever = load_index(settings.bm25_index_file, k=settings.bm25_k)
-    if bm25_retriever is None:
-        logger.warning("No BM25 index at %s — run scripts/ingest.py to build one.", settings.bm25_index_file)
+
+    if settings.database_url:
+        from src.db.pg_bm25 import PostgresBM25Retriever
+
+        bm25_retriever: BaseRetriever | None = PostgresBM25Retriever(
+            database_url=settings.database_url,
+            k=settings.bm25_k,
+            tenant_id=tenant_id,
+        )
+        logger.info("Keyword search: PostgresBM25Retriever (tenant=%s).", tenant_id)
+    else:
+        bm25_retriever = load_index(settings.bm25_index_file, k=settings.bm25_k)
+        if bm25_retriever is None:
+            logger.warning(
+                "No BM25 index at %s — run scripts/ingest.py to build one.",
+                settings.bm25_index_file,
+            )
 
     return HybridSearchService(
-        vector_retriever=get_vector_retriever(),
+        vector_retriever=get_vector_retriever(tenant_id),
         bm25_retriever=bm25_retriever,
         weights=(settings.bm25_weight, settings.vector_weight),
     )
