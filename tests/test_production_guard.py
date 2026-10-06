@@ -31,7 +31,9 @@ def test_development_allows_weak_defaults():
 
 
 def test_production_rejects_weak_postgres_password():
-    settings = Settings.model_construct(**_prod_base(database_url="postgresql+psycopg://raguser:ragpassword@postgres:5432/ragdb"))
+    settings = Settings.model_construct(
+        **_prod_base(database_url="postgresql+psycopg://raguser:ragpassword@postgres:5432/ragdb")
+    )
     errors = collect_production_errors(settings)
     assert any("weak Postgres password" in item for item in errors)
 

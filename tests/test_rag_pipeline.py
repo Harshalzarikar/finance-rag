@@ -224,7 +224,9 @@ def test_cache_hit_short_circuits_retrieval():
 
 
 def test_comprehensive_query_bypasses_semantic_cache():
-    cache = _Cache(hit=_Hit("short cached answer", [{"source": "resume.pdf", "page": 1, "score": None, "snippet": "x"}]))
+    cache = _Cache(
+        hit=_Hit("short cached answer", [{"source": "resume.pdf", "page": 1, "score": None, "snippet": "x"}])
+    )
     retriever = _Retriever([_document("Experience section", source="resume.pdf", page=2)])
     pipeline = _build(cache=cache, documents=[_document("header", source="resume.pdf")])
     pipeline.retriever = retriever
