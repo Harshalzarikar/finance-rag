@@ -51,8 +51,20 @@ query
 ```
 
 When retrieval is weak, the model is instructed to say the context does not contain
-enough information; the faithfulness guard can block answers that are not fully
-supported by the retrieved passages (see `src/core/faithfulness_guard.py`).
+enough information. An optional **faithfulness guard** checks that the final answer is
+supported by retrieved passages (see [Grounding and faithfulness](#grounding-and-faithfulness)).
+
+### Grounding and faithfulness
+
+Controlled by `ENABLE_FAITHFULNESS_GUARD` (default `true`). After Groq generates an
+answer, a **second Groq call** runs an entailment audit (`src/core/faithfulness_guard.py`).
+
+| Path | Behavior |
+|------|----------|
+| **`POST /chat`** | Generation finishes, then the guard runs. If it fails, the HTTP response is the safe refusal text with **empty sources** — the risky answer is not returned. |
+| **`POST /chat/stream`** | **Sources and tokens are sent first**; the guard runs only after the full answer is buffered server-side. If it fails, an SSE **`error`** event is appended and `done` sets `faithfulness_passed: false`. Text already streamed is **not** removed — clients that need hard blocking should use **`/chat`**, or buffer tokens until `done`. |
+| **Semantic cache** | **`cache.set` runs only after the guard passes** (same for `/chat` and `/chat/stream`). Failed audits are not cached. Cache hits skip generation and skip the guard (entries were stored only from prior passing runs). |
+| **Cost / latency** | One extra LLM round-trip per **non-cached** answer when the guard is on. If the guard itself errors, the pipeline **fails open** (allows the answer) and logs the failure. |
 
 Ingestion path:
 
@@ -106,7 +118,7 @@ The settings that most often need changing:
 | `REDIS_URL` | `redis://localhost:6379/0` | Must be a **Redis Stack** server; the plain `redis` image has no vector index. |
 | `GROQ_API_KEY` / `COHERE_API_KEY` | *(empty)* | Required for generation and reranking respectively. |
 | `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `BAAI/bge-small-en-v1.5` / `384` | Validated against each other at start-up; a mismatch is a hard error. |
-| `SEMANTIC_CACHE_THRESHOLD` | `0.88` | Cosine similarity required for a cache hit. Keys include **tenant id + prompt pack version** so tenants do not share entries; tune lower for stricter finance queries if you see near-duplicate hits. |
+| `SEMANTIC_CACHE_THRESHOLD` | `0.88` | Cosine similarity required for a cache hit. Keys include **tenant id + prompt pack version** so tenants do not share entries. **Raise** the threshold (e.g. **0.92–0.95**) for **stricter** matching; lowering it allows **more** cache hits (looser). |
 
 ## Running locally
 
@@ -190,11 +202,13 @@ thread-safe.
 
 | Endpoint | Auth | Description |
 |---|---|---|
-| `POST /chat` | required | Answer a question, returning citations. |
-| `POST /chat/stream` | required | Same, streamed as Server-Sent Events. |
-| `GET /tenants/me` | required | Returns the authenticated agency profile (used by the SPA login). |
-| `POST /auth/register` | admin | Create a tenant; response includes the raw `api_key` **once**. |
-| `POST /auth/rotate-key` | required | Tenant rotates their own API key. |
+| `POST /chat` | required | Answer a question, returning citations. Faithfulness guard can block before the response is returned. |
+| `POST /chat/stream` | required | Same pipeline, streamed as Server-Sent Events (`sources` → `token` → `done`). Guard runs after streaming; see [Grounding and faithfulness](#grounding-and-faithfulness). |
+| `GET /tenants/me` | required | Current user and agency (JWT session). |
+| `POST /auth/login` | public | Email/password → JWT for the SPA (`Authorization: Bearer`). Requires Postgres. |
+| `POST /auth/signup` | public | Self-service account (+ new org if allowed). Gated by `PUBLIC_SIGNUP_ENABLED`. |
+| `POST /auth/register` | admin | Create a tenant; response includes the raw `api_key` **once** (integrations). Does **not** create a login user by itself. |
+| `POST /auth/rotate-key` | required | Tenant rotates their own API key (`X-API-Key` integrations). |
 | `POST /documents/upload` | required | Queue a PDF for tenant-scoped ingestion (needs Celery worker). |
 | `GET /health/live` | public | Process liveness. |
 | `GET /health/ready` | public | Probes Qdrant, embeddings, the LLM client, the keyword index, the reranker, and Redis. Returns `503` when a **required** dependency is down. |
@@ -210,22 +224,37 @@ Errors are returned as `{"detail": "..."}` with `401` (auth), `422` (validation)
 `429` (rate limit, with `Retry-After`), or `500`. Internal error text is never
 leaked — it goes to the logs, correlated by the `X-Request-ID` response header.
 
-## Multi-tenant production (how customers get an API key)
+## Multi-tenant production (tenants, logins, and API keys)
 
 When `DATABASE_URL` is set (Docker Compose does this by default), each **agency**
-is a tenant with its own isolated corpus. Customers never share one global
-`API_KEYS` value — they receive a **per-tenant secret** at onboarding.
+is a tenant with its own isolated corpus. Two credentials serve different clients:
+
+| Credential | Used by | Purpose |
+|------------|---------|---------|
+| **JWT** (`POST /auth/login`) | Web SPA | Browser session via `Authorization: Bearer` |
+| **Tenant API key** (`X-API-Key`) | Scripts, partners | Server-to-server chat and uploads |
 
 ```text
 Platform admin (you)                         Agency user (customer)
         │                                              │
         ├─ Set ADMIN_API_KEY in .env                   │
-        ├─ Create tenant ──► raw api_key (once) ───────┼─► Paste key in SPA login
+        ├─ Create tenant + integration key ────────────┼─► (optional) use X-API-Key in curl
+        ├─ add-user OR enable public signup ───────────┼─► Email/password in SPA → JWT
         ├─ Ingest PDFs with --tenant-id <slug>         ├─► Chat / upload in browser
-        └─ Rotate or deactivate via admin CLI/API      └─► POST /auth/rotate-key if compromised
+        └─ Rotate API key via admin CLI/API            └─► POST /auth/rotate-key if key leaked
 ```
 
-**1. Create an agency (admin only)**
+**Who creates email/password users?**
+
+- **Admin path (typical production):** create the org, then add a login:
+  ```bash
+  python scripts/manage_tenants.py create --id acme-insurance --name "Acme Insurance" --plan pro
+  python scripts/manage_tenants.py add-user --tenant acme-insurance --email user@acme.com --password 'Secret123!'
+  ```
+  The `create` command prints a **tenant API key once** (for integrations). `add-user` creates the **human login** for the SPA.
+- **Self-service path:** set `PUBLIC_SIGNUP_ENABLED=true` (disabled in production by default) so users can `POST /auth/signup` and join or register an org.
+
+**1. Create an agency (admin only — tenant + integration key)**
 
 ```bash
 # CLI (uses DATABASE_URL from .env)
@@ -239,7 +268,16 @@ curl -s -X POST http://localhost:8000/auth/register \
 ```
 
 Copy the printed `api_key` immediately — it is **hashed in Postgres and cannot be
-looked up again**. If it is lost, rotate it:
+looked up again**. Give it to integrations that call the API with `X-API-Key`. For
+the web app, create a user with `manage_tenants.py add-user` (or public signup).
+
+**1b. Create a browser login (same tenant)**
+
+```bash
+python scripts/manage_tenants.py add-user --tenant acme-insurance --email user@acme.com --password 'Secret123!'
+```
+
+If it is lost, rotate the integration key:
 
 ```bash
 python scripts/manage_tenants.py rotate-key --id acme-insurance
@@ -250,16 +288,15 @@ python scripts/manage_tenants.py rotate-key --id acme-insurance
 
 ```bash
 docker compose --profile tools run --rm ingest --tenant-id acme-insurance --limit 10
-# or upload PDFs in the SPA (Upload tab) while signed in with the agency key
+# or upload PDFs in the SPA (Upload tab) while signed in (JWT)
 ```
 
 **3. Customer uses the web app**
 
-Open `http://localhost:8080` (or your public URL), sign in with email/password
-(or the flows your deployment exposes). The SPA stores a **JWT** in `localStorage`
-and sends `Authorization: Bearer …` on `/api/*` calls; server integrations should
-use **`X-API-Key`** with the tenant secret instead. Retrieval and semantic cache
-are scoped to the authenticated tenant.
+Open `http://localhost:8080` (or your public URL) and sign in with **email and
+password** (`POST /auth/login` → JWT in `localStorage`, sent as `Authorization:
+Bearer …`). Server integrations should use **`X-API-Key`** with the tenant secret
+instead. Retrieval and semantic cache are scoped to the authenticated tenant.
 
 **Security note:** JWT in `localStorage` is convenient for a demo SPA but is
 vulnerable to XSS; production products often prefer httpOnly cookie sessions.

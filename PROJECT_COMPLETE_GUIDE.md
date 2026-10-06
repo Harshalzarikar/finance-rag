@@ -222,12 +222,14 @@ POST /chat or /chat/stream
   │
   ├─ 12. Optional faithfulness guard (entailment check)
   │
-  ├─ 13. Build sources[] for API; cache.set on success (non-comprehensive)
+  ├─ 13. Build sources[] for API; cache.set **only if guard passed** (non-comprehensive)
   │
   └─ 14. Response: answer, sources, confidence_score, prompt_pack_version, ...
 ```
 
-**Stream order:** `sources` event → `token` events → `done`.
+**Stream order:** `sources` event → `token` events → (optional `error` if guard fails) → `done`.
+
+**Faithfulness vs streaming:** On `/chat`, a failed guard replaces the answer with the safe refusal. On `/chat/stream`, tokens may already be visible; failure adds an `error` event and `faithfulness_passed: false` on `done` without rewinding. Use `/chat` when you need hard blocking. Extra cost: one Groq call per non-cached answer when `ENABLE_FAITHFULNESS_GUARD=true`.
 
 ---
 
@@ -266,13 +268,13 @@ If keyword index is missing, hybrid degrades to **dense-only** (logged; `/health
 
 4. For each neighbor: `similarity = 1.0 - cosine_distance`.
 
-5. **Cache HIT** if `similarity >= SEMANTIC_CACHE_THRESHOLD` (default **0.88**).
+5. **Cache HIT** if `similarity >= SEMANTIC_CACHE_THRESHOLD` (default **0.88**). **Raise** the threshold (e.g. **0.92–0.95**) for stricter matching; **lower** values allow more hits (looser).
 
 6. On hit, return stored **answer** + **sources**; API sets `cached: true`, `cache_similarity`.
 
 ### Cache write
 
-After successful generation (not declined, not comprehensive-only path rules): store query text, vector, answer, sources JSON; TTL `SEMANTIC_CACHE_TTL_SECONDS` (default **86400** s).
+After generation **and** a passing faithfulness guard (when enabled), store query text, vector, answer, sources JSON; TTL `SEMANTIC_CACHE_TTL_SECONDS` (default **86400** s). Declined retrieval and failed guards are not cached.
 
 ### Cache bypass
 
@@ -353,6 +355,8 @@ Postgres FTS row: `tenant_id`, `source`, `page`, `content`, `metadata_json` (ful
 | Admin | `X-Admin-Key` | `/admin/*`, `/auth/register` |
 
 With `DATABASE_URL` set, **unauthenticated requests are rejected** (no anonymous tenant).
+
+**Creating users:** `POST /auth/register` (admin) creates a **tenant + API key only**. Browser logins need `python scripts/manage_tenants.py add-user …` or `POST /auth/signup` when `PUBLIC_SIGNUP_ENABLED=true`.
 
 **Main routes:**
 
