@@ -104,10 +104,19 @@ def ingest_pdf(self, pdf_path: str, source_name: str | None = None, tenant_id: s
         raise self.retry(countdown=30)
 
     try:
+        if not os.path.isfile(pdf_path):
+            msg = (
+                f"PDF not found at {pdf_path}. "
+                "In Docker, uploads must be staged on the shared /data volume (not API-only /tmp). "
+                "Re-upload after starting the worker with the latest API image."
+            )
+            logger.error("[task] %s", msg)
+            raise FileNotFoundError(msg)
+
         # ------------------------------------------------------------------
         # 1. Parse
         # ------------------------------------------------------------------
-        logger.info("[task] Parsing %s", name)
+        logger.info("[task] Parsing %s from %s", name, pdf_path)
         pages = list(DeepDocLoader(pdf_path, page_chunks=True).lazy_load())
         # The upload lands in a temp file, so the loader records a ``tmpXXXX_``
         # basename as the source. Normalise to the real filename so citations are
@@ -116,8 +125,7 @@ def ingest_pdf(self, pdf_path: str, source_name: str | None = None, tenant_id: s
             page.metadata["source"] = name
             page.metadata["tenant_id"] = tenant_id
         if not pages:
-            logger.warning("[task] No pages extracted from %s", name)
-            return {"status": "empty", "pages": 0, "chunks": 0, "source": name, "tenant_id": tenant_id}
+            raise ValueError(f"No pages or text could be extracted from {name}. Check that the PDF is valid.")
 
         # ------------------------------------------------------------------
         # 2. Ensure vector collection exists, then index into Qdrant

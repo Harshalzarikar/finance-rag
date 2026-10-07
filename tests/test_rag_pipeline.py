@@ -223,6 +223,33 @@ def test_cache_hit_short_circuits_retrieval():
     assert retriever.queries == []
 
 
+def test_semantic_cache_skipped_for_summary_follow_up_without_history():
+    cache = _Cache(hit=_Hit("cached denial", [{"source": "a.pdf", "page": 1, "score": None, "snippet": "x"}]))
+    retriever = _Retriever([_document("Kizen API onboarding", source="Kizen Backend API.pdf")])
+    pipeline = _build(cache=cache)
+    pipeline.retriever = retriever
+
+    result = pipeline.run("tell me summary of that")
+
+    assert result["cached"] is False
+    assert retriever.queries == ["tell me summary of that"]
+
+
+def test_semantic_cache_skipped_when_chat_history_present():
+    cache = _Cache(hit=_Hit("cached answer", [{"source": "a.pdf", "page": 1, "score": None, "snippet": "x"}]))
+    retriever = _Retriever([_document("fresh")])
+    pipeline = _build(cache=cache)
+    pipeline.retriever = retriever
+    history = [{"role": "user", "content": "voice agent project explain"}]
+
+    result = pipeline.run("what architecture of voice agent used", chat_history=history)
+
+    assert result["cached"] is False
+    assert result["answer"] == "A grounded answer."
+    assert retriever.queries == ["what architecture of voice agent used"]
+    assert cache.stored == []
+
+
 def test_comprehensive_query_bypasses_semantic_cache():
     cache = _Cache(
         hit=_Hit("short cached answer", [{"source": "resume.pdf", "page": 1, "score": None, "snippet": "x"}])

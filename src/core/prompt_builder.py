@@ -68,6 +68,20 @@ _SUMMARIZE_MARKERS = (
     "in brief",
 )
 
+# Vague follow-ups must not reuse a prior turn's cached embedding match.
+_FOLLOW_UP_MARKERS = (
+    " that",
+    " this",
+    " it ",
+    "those ",
+    "above",
+    "present in",
+    "what's in",
+    "what is in",
+    "contents of",
+    "in the document",
+)
+
 
 class QueryIntent(str, Enum):
     CONCISE = "concise"
@@ -109,9 +123,24 @@ def classify_query_intent(query: str) -> QueryIntent:
 
 
 def wants_comprehensive_answer(query: str) -> bool:
-    """Whether semantic cache should be bypassed for this query."""
+    """Whether retrieval should pull a wider top-k (summaries, profiles, lists)."""
     intent = classify_query_intent(query)
-    return intent in {QueryIntent.COMPREHENSIVE, QueryIntent.LIST, QueryIntent.COMPARE}
+    return intent in {
+        QueryIntent.COMPREHENSIVE,
+        QueryIntent.LIST,
+        QueryIntent.COMPARE,
+        QueryIntent.SUMMARIZE,
+    }
+
+
+def bypass_semantic_cache(query: str, chat_history: list[dict[str, str]] | None = None) -> bool:
+    """True when a cached answer must not be read or written for this turn."""
+    if chat_history:
+        return True
+    if wants_comprehensive_answer(query):
+        return True
+    q = query.lower()
+    return any(marker in q for marker in _FOLLOW_UP_MARKERS)
 
 
 def infer_corpus_profile(documents: list[Document]) -> CorpusProfile:

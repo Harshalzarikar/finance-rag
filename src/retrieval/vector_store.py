@@ -126,6 +126,31 @@ def count_points(client: QdrantClient | None = None) -> int:
     return int(client.count(settings.qdrant_collection_name, exact=True).count)
 
 
+def count_points_for_tenant(tenant_id: str, client: QdrantClient | None = None) -> int:
+    """Vectors whose payload ``metadata.tenant_id`` matches ``tenant_id``.
+
+    For ``default``, also counts legacy points ingested before ``tenant_id`` was
+    written (missing or empty ``metadata.tenant_id``), so drift checks stay accurate.
+    """
+    settings = get_settings()
+    client = client or get_qdrant_client()
+    collection = settings.qdrant_collection_name
+    if not client.collection_exists(collection):
+        return 0
+
+    if tenant_id == "default":
+        tenant_filter = Filter(
+            should=[
+                FieldCondition(key="metadata.tenant_id", match=MatchValue(value="default")),
+                FieldCondition(key="metadata.tenant_id", is_empty=True),
+            ]
+        )
+    else:
+        tenant_filter = Filter(must=[FieldCondition(key="metadata.tenant_id", match=MatchValue(value=tenant_id))])
+
+    return int(client.count(collection, count_filter=tenant_filter, exact=True).count)
+
+
 def delete_source(source: str, client: QdrantClient | None = None) -> None:
     """Remove every vector belonging to ``source`` so re-ingest is idempotent.
 

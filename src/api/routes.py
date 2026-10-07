@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import os
-import tempfile
+import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -171,14 +171,15 @@ async def upload_document(
             detail="Only PDF files are accepted.",
         )
 
-    # Save the upload to a temp file the Celery worker can access.
-    # In production, replace this with S3/GCS: upload to object storage,
-    # pass the URL to the task instead of a local path.
-    suffix = f"_{file.filename}"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        content = await file.read()
-        tmp.write(content)
-        tmp_path = tmp.name
+    # Stage on the shared ``rag_data`` volume (/data) so the Celery worker container
+    # can read the same path (API-local /tmp is invisible to other containers).
+    content = await file.read()
+    staging_dir = os.environ.get("UPLOAD_STAGING_DIR", "/data/uploads")
+    os.makedirs(staging_dir, exist_ok=True)
+    safe_name = os.path.basename(file.filename).replace("..", "_")
+    tmp_path = os.path.join(staging_dir, f"{tenant.id}_{uuid.uuid4().hex}_{safe_name}")
+    with open(tmp_path, "wb") as staged:
+        staged.write(content)
 
     try:
         from src.ingestion.tasks import ingest_pdf

@@ -28,6 +28,7 @@ from src.config.settings import get_settings
 from src.core.faithfulness_guard import FaithfulnessGuard
 from src.core.prompt_builder import (
     build_system_prompt,
+    bypass_semantic_cache,
     cache_scope_for_prompt,
     effective_prompt_pack,
     wants_comprehensive_answer,
@@ -79,7 +80,26 @@ _ENTITY_QUERY_STOPWORDS = frozenset(
         "resume",
         "tell",
         "more",
+        "document",
+        "upload",
+        "uploaded",
+        "recent",
+        "asking",
     }
+)
+
+# Answers that deny coverage should not be replayed via semantic cache for similar queries.
+_NO_CACHE_ANSWER_MARKERS = (
+    "does not contain",
+    "do not contain",
+    "don't have any information",
+    "do not have any information",
+    "no information about",
+    "cannot answer",
+    "can't answer",
+    "insufficient",
+    "not indexed yet",
+    "no passage in the indexed corpus",
 )
 
 
@@ -143,9 +163,10 @@ class RAGPipeline:
 
         comprehensive = wants_comprehensive_answer(query)
         cache_query = self._scoped_cache_query(query)
-        if not comprehensive:
+        use_semantic_cache = not bypass_semantic_cache(query, chat_history)
+        if use_semantic_cache:
             cached = self.cache.get(cache_query)
-            if cached is not None:
+            if cached is not None and self._should_cache_answer(cached.answer):
                 return {
                     "answer": cached.answer,
                     "sources": cached.sources,
@@ -191,7 +212,7 @@ class RAGPipeline:
         sources = self._build_sources(reranked)
         rag_counters("answered")
 
-        if not comprehensive:
+        if use_semantic_cache and self._should_cache_answer(answer):
             self.cache.set(cache_query, answer, sources)
         return {
             "answer": answer,
@@ -222,9 +243,10 @@ class RAGPipeline:
 
         comprehensive = wants_comprehensive_answer(query)
         cache_query = self._scoped_cache_query(query)
-        if not comprehensive:
+        use_semantic_cache = not bypass_semantic_cache(query, chat_history)
+        if use_semantic_cache:
             cached = self.cache.get(cache_query)
-            if cached is not None:
+            if cached is not None and self._should_cache_answer(cached.answer):
                 yield {"type": "sources", "sources": cached.sources, "cached": True}
                 yield {"type": "token", "value": cached.answer}
                 yield {
@@ -272,7 +294,7 @@ class RAGPipeline:
 
         if answer:
             rag_counters("answered")
-            if not comprehensive:
+            if use_semantic_cache and self._should_cache_answer(answer):
                 self.cache.set(cache_query, answer, sources)
         yield {
             "type": "done",
@@ -281,6 +303,13 @@ class RAGPipeline:
             "faithfulness_passed": True,
             "prompt_pack_version": self._active_prompt_version(),
         }
+
+    @staticmethod
+    def _should_cache_answer(answer: str) -> bool:
+        if not answer.strip():
+            return False
+        lower = answer.lower()
+        return not any(marker in lower for marker in _NO_CACHE_ANSWER_MARKERS)
 
     # ------------------------------------------------------------------
     # Query Rewriting
@@ -323,12 +352,35 @@ Standalone Query:"""
         candidates = self.retriever.search(query)
         resolved = self._resolve_parents(candidates)
         deduplicated = self._deduplicate(resolved)
+        prioritized = self._prioritize_source_filename_matches(query, deduplicated)
         logger.info(
             "Retrieved %d candidates -> %d after parent resolution and dedup.",
             len(candidates),
             len(deduplicated),
         )
-        return deduplicated[: settings.rerank_max_candidates]
+        return prioritized[: settings.rerank_max_candidates]
+
+    @staticmethod
+    def _query_tokens_for_source_match(query: str) -> list[str]:
+        return [
+            token
+            for token in re.findall(r"[a-z0-9]+", query.lower())
+            if len(token) >= 3 and token not in _ENTITY_QUERY_STOPWORDS
+        ]
+
+    @classmethod
+    def _prioritize_source_filename_matches(cls, query: str, documents: list[Document]) -> list[Document]:
+        tokens = cls._query_tokens_for_source_match(query)
+        if not tokens or not documents:
+            return documents
+
+        def filename_hits(doc: Document) -> int:
+            source = str(doc.metadata.get("source", "")).lower()
+            return sum(1 for token in tokens if token in source)
+
+        if max(filename_hits(doc) for doc in documents) == 0:
+            return documents
+        return sorted(documents, key=filename_hits, reverse=True)
 
     def _resolve_parents(self, documents: list[Document]) -> list[Document]:
         """Replace BM25 child chunks with their parent sections.
@@ -389,10 +441,14 @@ Standalone Query:"""
 
     @staticmethod
     def _document_matches_entity(query: str, document: Document) -> bool:
+        source = str(document.metadata.get("source", "")).lower()
+        short_source_tokens = RAGPipeline._query_tokens_for_source_match(query)
+        if short_source_tokens and any(token in source for token in short_source_tokens):
+            return True
         tokens = RAGPipeline._entity_tokens(query)
         if not tokens:
             return False
-        blob = f"{document.metadata.get('source', '')} {document.page_content[:800]}".lower()
+        blob = f"{source} {document.page_content[:800]}".lower()
         return any(token in blob for token in tokens)
 
     @staticmethod

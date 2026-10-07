@@ -53,6 +53,7 @@ from src.observability.logging import configure_logging  # noqa: E402
 from src.retrieval import bm25  # noqa: E402
 from src.retrieval.vector_store import (  # noqa: E402
     count_points,
+    count_points_for_tenant,
     delete_source,
     ensure_collection,
     get_qdrant_client,
@@ -434,27 +435,30 @@ def run_ingestion(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
-def verify() -> int:
+def verify(tenant_id: str = "default") -> int:
     """Report drift between the manifest, the vector store, and the keyword index."""
     settings = get_settings()
     manifest = load_manifest(settings.ingestion_manifest_file)
+    client = get_qdrant_client()
 
     expected_chunks = sum(int(entry.get("chunks", 0)) for entry in manifest.values())
-    actual_points = count_points(get_qdrant_client())
+    actual_points = count_points(client)
+    tenant_points = count_points_for_tenant(tenant_id, client)
 
     if settings.database_url:
         from src.db.schema import ChildChunkFTS, get_session_factory
 
         with get_session_factory(settings.database_url)() as session:
-            bm25_chunks = session.query(ChildChunkFTS).count()
+            bm25_chunks = session.query(ChildChunkFTS).filter(ChildChunkFTS.tenant_id == tenant_id).count()
     else:
         index = bm25.load_index(settings.bm25_index_file, k=settings.bm25_k)
         bm25_chunks = len(index.corpus) if index is not None else 0
 
     logger.info("Manifest files  : %d", len(manifest))
     logger.info("Expected chunks : %d", expected_chunks)
-    logger.info("Qdrant points   : %d", actual_points)
-    logger.info("Keyword chunks  : %d", bm25_chunks)
+    logger.info("Qdrant points   : %d (collection total)", actual_points)
+    logger.info("Qdrant points   : %d (tenant=%s)", tenant_points, tenant_id)
+    logger.info("Keyword chunks  : %d (tenant=%s)", bm25_chunks, tenant_id)
 
     drift = False
     if not manifest:
@@ -463,8 +467,13 @@ def verify() -> int:
     if expected_chunks and actual_points != expected_chunks:
         logger.error("Drift: Qdrant holds %d points, the manifest expects %d.", actual_points, expected_chunks)
         drift = True
-    if expected_chunks and bm25_chunks != expected_chunks:
-        logger.error("Drift: BM25 holds %d chunks, the manifest expects %d.", bm25_chunks, expected_chunks)
+    if tenant_points != bm25_chunks:
+        logger.error(
+            "Drift: keyword index holds %d chunks for tenant=%s, Qdrant has %d for that tenant.",
+            bm25_chunks,
+            tenant_id,
+            tenant_points,
+        )
         drift = True
 
     if drift:
@@ -523,7 +532,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     configure_logging(settings.log_level, json_output=False)
 
     if args.verify:
-        return verify()
+        return verify(args.tenant_id)
     return run_ingestion(args)
 
 
