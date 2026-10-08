@@ -102,9 +102,11 @@ def test_tenants_me_requires_bearer_session(client, monkeypatch, auth_headers):
     get_settings.cache_clear()
     monkeypatch.setattr(
         "src.db.tenant_store.get_tenant_by_api_key",
-        lambda _url, key: type("T", (), {"id": "acme", "name": "Acme", "plan": "pro", "is_active": True})()
-        if key == auth_headers["X-API-Key"]
-        else None,
+        lambda _url, key: (
+            type("T", (), {"id": "acme", "name": "Acme", "plan": "pro", "is_active": True})()
+            if key == auth_headers["X-API-Key"]
+            else None
+        ),
     )
 
     response = client.get("/tenants/me", headers=auth_headers)
