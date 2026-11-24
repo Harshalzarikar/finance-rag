@@ -3,6 +3,53 @@
 How the service is put together and, where it matters, why a design choice was made and
 what alternative was rejected.
 
+Start with the [Overview](#overview) if you are new to the codebase; the rest of this
+document fills in the reasoning behind each decision.
+
+## Overview
+
+This is a question-answering service over a corpus of PDFs. You add documents (the
+**write path**), then ask questions about them (the **read path**). Every answer cites the
+document and page it came from, and a multi-tenant layer keeps each customer's corpus
+isolated from every other's.
+
+At runtime it is a small set of containers:
+
+```
+                 browser
+                    │  HTTPS
+                    ▼
+        frontend (Caddy)      static SPA + reverse proxy for /api/*
+                    │
+                    ▼
+        api (FastAPI)         auth · rate limit · the RAG pipeline
+      ┌──────┼──────┬─────────────┐
+      ▼      ▼      ▼             ▼
+   qdrant  redis  postgres    Groq / Cohere
+  (vectors) (cache, (tenants, (generation,
+            limits,  users,    reranking)
+            broker)  text index)
+```
+
+| Service | Job (plain English) |
+|---|---|
+| frontend | The website; also forwards `/api/*` to the API. |
+| api | The "brain": authentication, the retrieval pipeline, streaming answers. |
+| qdrant | "Meaning" search — stores vector embeddings and finds similar chunks. |
+| redis | Remembers past answers (semantic cache) and counts rate limits. |
+| postgres | Users, tenants, and the keyword (full-text) index. |
+| worker | (optional) Background job that processes PDF uploads. |
+
+The two flows in one line each:
+
+- **Write path (ingestion):** PDF → parse → split into chunks → embed + index (Qdrant for
+  vectors, Postgres for keyword text).
+- **Read path (query):** question → hybrid recall (keyword + vector) → rerank → generate an
+  answer with citations.
+
+That diagram is enough to understand the *what*; the rest of this document explains the
+*why*.
+
 ## Components
 
 | Component | Technology | Responsibility |
@@ -27,6 +74,35 @@ Two pipelines exist and never run concurrently:
 
 Both share the same splitter and embedding factories, because if they disagreed about how
 text becomes chunks, retrieval would be comparing incomparable units.
+
+## Code map
+
+Where each concept lives, for when you need to find the implementation.
+
+| Concept | Primary file(s) |
+|---|---|
+| App wiring / entrypoint | `src/api/main.py` |
+| HTTP endpoints | `src/api/routes.py` |
+| Auth, rate limiting, tenant context | `src/api/deps.py`, `src/api/jwt_auth.py` |
+| Settings + production guard | `src/config/settings.py`, `src/config/production_guard.py` |
+| End-to-end query orchestration | `src/core/rag_pipeline.py` |
+| Prompt construction | `src/core/prompt_builder.py`, `src/core/prompts/*.json` |
+| Query / faithfulness guards | `src/core/query_guard.py`, `src/core/faithfulness_guard.py` |
+| PDF parsing, chunking | `src/ingestion/deepdoc_loader.py`, `src/ingestion/chunker.py` |
+| Async upload task | `src/ingestion/tasks.py` |
+| Vector store + embeddings | `src/retrieval/vector_store.py` |
+| Keyword index | `src/db/pg_bm25.py` (Postgres) or `src/retrieval/bm25.py` (pickle) |
+| Hybrid fusion | `src/retrieval/hybrid_search.py` |
+| Reranker / generator | `src/llm/reranker.py`, `src/llm/generator.py` |
+| Semantic cache | `src/cache/semantic_cache.py` |
+| Database schema | `src/db/schema.py` |
+| Observability | `src/observability/` |
+| Ingestion CLI | `scripts/ingest.py` |
+| Tenant/user CLI | `scripts/manage_tenants.py` |
+
+Suggested reading order for a newcomer: `src/api/main.py` (wiring) → `src/api/routes.py`
+(endpoints) → `src/core/rag_pipeline.py` (the pipeline) → `src/retrieval/hybrid_search.py`
+(retrieval) → `src/llm/generator.py` (generation).
 
 ## Request lifecycle
 
