@@ -1,14 +1,31 @@
 # Quantitative Finance RAG
 
-**New to this repo?** Read [START_HERE.md](START_HERE.md) first (short path), or **[PROJECT_COMPLETE_GUIDE.md](PROJECT_COMPLETE_GUIDE.md)** for the full architecture, production flow, thresholds, and reference in one file.
+A production-oriented retrieval-augmented generation (RAG) service over a corpus of
+quantitative finance research papers. It parses PDFs with layout awareness, splits them into
+parent/child chunks, retrieves with hybrid keyword + dense search, reranks with a
+cross-encoder, generates grounded answers with citations, and caches semantically similar
+queries in Redis.
 
-A production-oriented retrieval-augmented generation service over a corpus of
-quantitative finance research papers. Layout-aware parsing, parent/child chunking,
-hybrid keyword + dense retrieval, cross-encoder reranking, grounded citations, and
-a Redis-backed semantic cache.
+The retrieval design follows patterns established by [RAGFlow](https://github.com/infiniflow/ragflow)
+rather than being built on it — see [Attribution](#attribution).
 
-Built on design ideas borrowed from [RAGFlow](https://github.com/infiniflow/ragflow)
-rather than on RAGFlow itself — see [Attribution](#attribution).
+## What it does
+
+- **Layout-aware ingestion** — `pymupdf4llm` with ONNX layout/table models converts PDFs to
+  per-page Markdown. Parent sections are kept for generation context; child chunks are
+  embedded and matched so retrieval stays precise.
+- **Hybrid retrieval** — BM25 keyword recall is fused with dense vector recall (Qdrant) using
+  weighted reciprocal-rank fusion, then rescored by a Cohere cross-encoder.
+- **Grounded answers** — the generator must cite passages (`[Source: …]`). Passages below a
+  relevance floor are dropped, and if none clear it the service declines to answer rather than
+  citing unrelated documents. An optional faithfulness guard audits the answer against the
+  retrieved context before it is returned.
+- **Multi-tenant** — every agency is isolated by tenant id across Postgres, Qdrant, and the
+  semantic cache. JWT logins for the web app, per-tenant API keys for integrations.
+- **Semantic cache** — a Redis Stack HNSW index short-circuits repeated questions. Entries are
+  scoped to tenant + retrieval config + prompt version so a match can never cross tenants.
+- **Operable** — readiness probes, Prometheus metrics, structured JSON logs with request IDs,
+  rate limiting, and a production guard that refuses to boot with weak secrets.
 
 ## Architecture
 
@@ -16,305 +33,34 @@ rather than on RAGFlow itself — see [Attribution](#attribution).
                  browser
                     │  HTTPS
                     ▼
-        ┌───────────────────────────┐
-        │  frontend (Caddy)         │   serves the SPA
-        │  /api/*  ──► api:8000     │   reverse-proxies the API
-        └───────────┬───────────────┘
+        frontend (Caddy)                SPA + TLS, reverse-proxies /api/*
+                    │
                     ▼
-        ┌───────────────────────────┐
-        │  api (FastAPI)            │
-        │   auth · rate limit       │
-        │   semantic cache          │
-        │   hybrid recall           │
-        │   rerank · generate       │
-        └──┬──────────┬─────────┬───┘
-           ▼          ▼         ▼
-       qdrant      redis    Groq / Cohere
-     (vectors)   (cache,    (generation,
-                  limits)    reranking)
+        api (FastAPI)                   auth · rate limit · semantic cache
+                                        hybrid recall · rerank · generate
+        ┌──────┬──────┴──────┬──────────────┐
+        ▼      ▼             ▼              ▼
+     qdrant  redis       postgres        Groq / Cohere
+    (vectors) (cache,    (tenants,       (generation,
+              limits,     users,          reranking)
+              broker)     FTS index)
 ```
 
 Query path:
 
 ```
-query
-  └─► semantic cache ──hit──► return cached answer
+query → semantic cache ──hit──► cached answer
         │ miss
-        ├─► BM25 keyword recall  (k=8)
-        ├─► Qdrant dense recall  (k=20 candidates)
-        ├─► fuse with weighted reciprocal rank fusion (0.4 / 0.6)
-        ├─► expand child chunks back to their parent sections
-        ├─► drop duplicate passages
-        ├─► Cohere cross-encoder rerank (top_n)
+        ├─► BM25 keyword recall + Qdrant dense recall → RRF fusion
+        ├─► expand child chunks to parent sections → dedup
+        ├─► Cohere cross-encoder rerank (relevance floor)
         └─► Groq generation with [Source: …] labels
-              └─► optional faithfulness audit (ENABLE_FAITHFULNESS_GUARD) ──► answer + citations
+              └─► optional faithfulness audit ──► answer + citations
 ```
 
-When retrieval is weak, the model is instructed to say the context does not contain
-enough information. An optional **faithfulness guard** checks that the final answer is
-supported by retrieved passages (see [Grounding and faithfulness](#grounding-and-faithfulness)).
+## Quick start
 
-### Grounding and faithfulness
-
-Controlled by `ENABLE_FAITHFULNESS_GUARD` (default `true`). After Groq generates an
-answer, a **second Groq call** runs an entailment audit (`src/core/faithfulness_guard.py`).
-
-| Path | Behavior |
-|------|----------|
-| **`POST /chat`** | Generation finishes, then the guard runs. If it fails, the HTTP response is the safe refusal text with **empty sources** — the risky answer is not returned. |
-| **`POST /chat/stream`** | **Sources and tokens are sent first**; the guard runs only after the full answer is buffered server-side. If it fails, an SSE **`error`** event is appended and `done` sets `faithfulness_passed: false`. Text already streamed is **not** removed — clients that need hard blocking should use **`/chat`**, or buffer tokens until `done`. |
-| **Semantic cache** | **`cache.set` runs only after the guard passes** (same for `/chat` and `/chat/stream`). Failed audits are not cached. Cache hits skip generation and skip the guard (entries were stored only from prior passing runs). |
-| **Cost / latency** | One extra LLM round-trip per **non-cached** answer when the guard is on. If the guard itself errors, the pipeline **fails open** (allows the answer) and logs the failure. |
-
-Ingestion path:
-
-```
-PDF ─► DeepDoc-style layout parsing (pymupdf4llm, ONNX DLR/TSR) ─► Markdown per page
-    ─► parent split on Markdown heading boundaries
-    ─► child split (~700 chars, 80 overlap)
-    ├─► embeddings ─► Qdrant
-    ├─► parents ─────► local document store
-    └─► children ────► BM25 keyword index
-```
-
-Both indexes are built from a single split, so a keyword hit and a dense hit refer
-to the same unit of text and carry the same citation metadata.
-
-See [SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md) for the reasoning behind each
-of these choices. For a **step-by-step flow** (auth, tenants, ingest, chat, Docker),
-see [PROJECT_FLOW.md](PROJECT_FLOW.md). For **contributing** (layout, lint, tests),
-see [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Requirements
-
-- Python 3.13
-- Docker + Docker Compose (for the containerised stack); a local run needs Qdrant
-  and Redis Stack reachable, or you can run Qdrant in embedded mode
-- API keys for Groq (generation) and Cohere (reranking). Both are optional at
-  start-up: without them the service reports `degraded` on `/health/ready`
-  instead of failing to boot.
-
-## Configuration
-
-Every setting has a default and is documented in [`.env.example`](.env.example).
-Copy it and fill in the values:
-
-```bash
-cp .env.example .env
-```
-
-Environment variables take precedence over `.env`, which is useful for overriding
-a single value in a container or a test.
-
-The settings that most often need changing:
-
-| Variable | Default | Notes |
-|---|---|---|
-| `API_KEYS` | *(empty)* | Legacy comma-separated keys (single-tenant dev). With **`DATABASE_URL` set**, auth is always on (JWT login + per-tenant `X-API-Key`). With neither Postgres nor `API_KEYS`, auth is **off** — only for isolated local dev. |
-| `JWT_SECRET` | *(empty)* | Signs browser session tokens after `/auth/login`; required in production with Postgres. |
-| `ENABLE_FAITHFULNESS_GUARD` | `true` | Post-generation entailment check against retrieved context. |
-| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated browser origins. |
-| `QDRANT_URL` | `http://localhost:6333` | Leave empty to use embedded on-disk Qdrant (single process only). |
-| `REDIS_URL` | `redis://localhost:6379/0` | Must be a **Redis Stack** server; the plain `redis` image has no vector index. |
-| `GROQ_API_KEY` / `COHERE_API_KEY` | *(empty)* | Required for generation and reranking respectively. |
-| `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `BAAI/bge-small-en-v1.5` / `384` | Validated against each other at start-up; a mismatch is a hard error. |
-| `SEMANTIC_CACHE_THRESHOLD` | `0.88` | Cosine similarity required for a cache hit. Keys include **tenant id + prompt pack version** so tenants do not share entries. **Raise** the threshold (e.g. **0.92–0.95**) for **stricter** matching; lowering it allows **more** cache hits (looser). |
-
-## Running locally
-
-```bash
-python -m venv venv
-venv/Scripts/activate          # Windows
-# source venv/bin/activate     # Linux/macOS
-
-pip install -r requirements-dev.txt
-
-# Infrastructure (or run the full stack with docker compose instead)
-docker compose up -d qdrant redis
-
-# Build the indexes — the first thing to do on a fresh checkout
-python scripts/ingest.py --limit 5     # smoke test
-python scripts/ingest.py               # full corpus
-
-# Serve
-uvicorn src.api.main:app --reload --port 8000
-```
-
-The API is then at `http://localhost:8000` with interactive docs at `/docs`.
-
-```bash
-curl -H "X-API-Key: $API_KEYS" -H 'Content-Type: application/json' \
-     -d '{"query": "What is a volatility smile?"}' \
-     http://localhost:8000/chat
-
-# Server-Sent Events, citations first then tokens
-curl -N -H "X-API-Key: $API_KEYS" -H 'Content-Type: application/json' \
-     -d '{"query": "Explain GARCH"}' \
-     http://localhost:8000/chat/stream
-```
-
-### Frontend development
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Vite proxies `/api` to `http://localhost:8000` (override with `VITE_PROXY_TARGET`),
-so the browser always talks to a single relative base path — the same one used in
-production.
-
-## Ingestion
-
-```bash
-python scripts/ingest.py                        # everything in RAW_PDFS_DIR
-python scripts/ingest.py --pdf real_pdfs/x.pdf  # a single file
-python scripts/ingest.py --reset --limit 5      # wipe, then ingest the first 5
-python scripts/ingest.py --offset 100 --limit 50
-python scripts/ingest.py --concurrency 4        # parallel PDF parsing
-python scripts/ingest.py --verify               # manifest vs. stores drift check
-```
-
-Ingestion is idempotent and resumable:
-
-- Files are keyed in the manifest by **path relative to the corpus root** plus a
-  SHA-256 of their contents, so an unchanged file is skipped and the manifest
-  stays portable between a host and a container.
-- The manifest records **which collection and embedding model** it was built
-  against. Pointing at a different collection or model discards it and re-indexes
-  everything — otherwise the run would skip files whose vectors do not exist.
-- Re-ingesting a changed file first deletes that file's existing vectors and
-  keyword chunks, so nothing is duplicated.
-- Progress is written atomically after every file; an interrupted run resumes
-  where it stopped.
-
-The manifest tracks file contents and the target collection, **not the parsing or
-chunking code**. After changing `src/ingestion/`, re-run with `--reset` so every
-document is re-chunked; otherwise unchanged files are skipped and keep their old
-chunks.
-
-PDF parsing is the bottleneck and is parallelised with `--concurrency`; indexing
-itself stays serial because the embedding model and vector store are not
-thread-safe.
-
-## API
-
-| Endpoint | Auth | Description |
-|---|---|---|
-| `POST /chat` | required | Answer a question, returning citations. Faithfulness guard can block before the response is returned. |
-| `POST /chat/stream` | required | Same pipeline, streamed as Server-Sent Events (`sources` → `token` → `done`). Guard runs after streaming; see [Grounding and faithfulness](#grounding-and-faithfulness). |
-| `GET /tenants/me` | required | Current user and agency (JWT session). |
-| `POST /auth/login` | public | Email/password → JWT for the SPA (`Authorization: Bearer`). Requires Postgres. |
-| `POST /auth/signup` | public | Self-service account (+ new org if allowed). Gated by `PUBLIC_SIGNUP_ENABLED`. |
-| `POST /auth/register` | admin | Create a tenant; response includes the raw `api_key` **once** (integrations). Does **not** create a login user by itself. |
-| `POST /auth/rotate-key` | required | Tenant rotates their own API key (`X-API-Key` integrations). |
-| `POST /documents/upload` | required | Queue a PDF for tenant-scoped ingestion (needs Celery worker). |
-| `GET /health/live` | public | Process liveness. |
-| `GET /health/ready` | public | Probes Qdrant, embeddings, the LLM client, the keyword index, the reranker, and Redis. Returns `503` when a **required** dependency is down. |
-| `GET /metrics` | required | Prometheus exposition, including semantic-cache statistics. |
-| `GET /` | public | Service descriptor. |
-
-`/health/ready` distinguishes required dependencies (Qdrant, embeddings, the
-generator) from optional ones (keyword index, reranker, cache). Losing an optional
-dependency degrades quality but keeps the service in rotation; losing a required
-one takes it out.
-
-Errors are returned as `{"detail": "..."}` with `401` (auth), `422` (validation),
-`429` (rate limit, with `Retry-After`), or `500`. Internal error text is never
-leaked — it goes to the logs, correlated by the `X-Request-ID` response header.
-
-## Multi-tenant production (tenants, logins, and API keys)
-
-When `DATABASE_URL` is set (Docker Compose does this by default), each **agency**
-is a tenant with its own isolated corpus. Two credentials serve different clients:
-
-| Credential | Used by | Purpose |
-|------------|---------|---------|
-| **JWT** (`POST /auth/login`) | Web SPA | Browser session via `Authorization: Bearer` |
-| **Tenant API key** (`X-API-Key`) | Scripts, partners | Server-to-server chat and uploads |
-
-```text
-Platform admin (you)                         Agency user (customer)
-        │                                              │
-        ├─ Set ADMIN_API_KEY in .env                   │
-        ├─ Create tenant + integration key ────────────┼─► (optional) use X-API-Key in curl
-        ├─ add-user OR enable public signup ───────────┼─► Email/password in SPA → JWT
-        ├─ Ingest PDFs with --tenant-id <slug>         ├─► Chat / upload in browser
-        └─ Rotate API key via admin CLI/API            └─► POST /auth/rotate-key if key leaked
-```
-
-**Who creates email/password users?**
-
-- **Admin path (typical production):** create the org, then add a login:
-  ```bash
-  python scripts/manage_tenants.py create --id acme-insurance --name "Acme Insurance" --plan pro
-  python scripts/manage_tenants.py add-user --tenant acme-insurance --email user@acme.com --password 'Secret123!'
-  ```
-  The `create` command prints a **tenant API key once** (for integrations). `add-user` creates the **human login** for the SPA.
-- **Self-service path:** set `PUBLIC_SIGNUP_ENABLED=true` (disabled in production by default) so users can `POST /auth/signup` and join or register an org.
-
-**1. Create an agency (admin only — tenant + integration key)**
-
-```bash
-# CLI (uses DATABASE_URL from .env)
-python scripts/manage_tenants.py create --id acme-insurance --name "Acme Insurance" --plan pro
-
-# HTTP (requires X-Admin-Key header, not for browsers)
-curl -s -X POST http://localhost:8000/auth/register \
-  -H "X-Admin-Key: $ADMIN_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"tenant_id":"acme-insurance","name":"Acme Insurance","plan":"pro"}'
-```
-
-Copy the printed `api_key` immediately — it is **hashed in Postgres and cannot be
-looked up again**. Give it to integrations that call the API with `X-API-Key`. For
-the web app, create a user with `manage_tenants.py add-user` (or public signup).
-
-**1b. Create a browser login (same tenant)**
-
-```bash
-python scripts/manage_tenants.py add-user --tenant acme-insurance --email user@acme.com --password 'Secret123!'
-```
-
-If it is lost, rotate the integration key:
-
-```bash
-python scripts/manage_tenants.py rotate-key --id acme-insurance
-# or: POST /auth/rotate-key with the old key still valid
-```
-
-**2. Load that tenant's documents**
-
-```bash
-docker compose --profile tools run --rm ingest --tenant-id acme-insurance --limit 10
-# or upload PDFs in the SPA (Upload tab) while signed in (JWT)
-```
-
-**3. Customer uses the web app**
-
-Open `http://localhost:8080` (or your public URL) and sign in with **email and
-password** (`POST /auth/login` → JWT in `localStorage`, sent as `Authorization:
-Bearer …`). Server integrations should use **`X-API-Key`** with the tenant secret
-instead. Retrieval and semantic cache are scoped to the authenticated tenant.
-
-**Security note:** JWT in `localStorage` is convenient for a demo SPA but is
-vulnerable to XSS; production products often prefer httpOnly cookie sessions.
-
-**4. Integrate from another app**
-
-```bash
-curl -s -H "X-API-Key: <agency-key>" -H "Content-Type: application/json" \
-  -d '{"query":"What is delta hedging?"}' \
-  http://localhost:8000/chat
-```
-
-With Postgres enabled, requests **without** a valid `Authorization: Bearer` JWT or
-`X-API-Key` are rejected — there is no anonymous `default` tenant in production.
-
-## Deployment
-
-**Local development** (API and databases published on localhost):
+### Docker (full stack)
 
 ```bash
 cp .env.example .env
@@ -323,119 +69,116 @@ docker compose --profile tools run --rm ingest --tenant-id your-org --limit 10
 curl -fsS http://localhost:8000/health/ready
 ```
 
-**Production (API not exposed; HTTPS via Caddy when `SITE_DOMAIN` is set):**
-
-See **[DEPLOY.md](DEPLOY.md)** for the full public checklist. Quick start:
-
-```powershell
-.\scripts\deploy_production.ps1 -Domain app.example.com -Email ops@example.com -GroqKey "..." -CohereKey "..."
-```
-
-Or manually:
+### Local API (backing services only)
 
 ```bash
-python scripts/setup_production_env.py --domain app.example.com --email ops@example.com --force
-python scripts/verify_production_env.py
-docker compose up -d --build
-docker compose --profile tools up -d worker
-curl -fsS https://app.example.com/api/health/ready
+python -m venv venv
+venv/Scripts/activate            # Windows  (source venv/bin/activate on Linux/macOS)
+pip install -r requirements-dev.txt
+
+docker compose up -d qdrant redis
+python scripts/ingest.py --limit 5
+uvicorn src.api.main:app --reload --port 8000
 ```
 
-With `APP_ENV=production`, the API **refuses to start** if `JWT_SECRET`, `ADMIN_API_KEY`, or
-`POSTGRES_PASSWORD` are missing/weak, if `PUBLIC_SIGNUP_ENABLED=true`, or if `CORS_ORIGINS` is
-localhost-only while Postgres multi-tenancy is enabled.
+Interactive docs are at `http://localhost:8000/docs`.
 
-The stack runs `api` (internal), `qdrant`, `redis`, `postgres`, and `frontend` (public
-entry on ports 80/443). Use `docker-compose.dev.yml` only for local debugging ports.
+## Configuration
 
-Additional notes:
+Every setting has a default and is documented in [`.env.example`](.env.example). Environment
+variables take precedence over `.env`.
 
-- **TLS.** Set `SITE_DOMAIN` and `CADDY_EMAIL` in `.env`; Caddy in the frontend container
-  obtains Let's Encrypt certificates automatically. Leave `SITE_DOMAIN` empty for HTTP on port 80.
-- **Secrets.** Inject via your platform secret store in cloud deploys; never commit `.env`.
-- **Back up volumes.** `pg_data` (tenants + indexes), `qdrant_data` (vectors), `rag_data` (manifest).
-- **Model warmth.** Embeddings are baked into the API image at build time.
+| Variable | Default | Notes |
+|---|---|---|
+| `API_KEYS` | *(empty)* | Legacy single-tenant keys. With `DATABASE_URL` set, auth is always on (JWT + per-tenant keys). |
+| `JWT_SECRET` | *(empty)* | Signs browser session tokens; required in production with Postgres. |
+| `DATABASE_URL` | *(empty)* | Enables Postgres multi-tenancy (tenants, users, parent docs, FTS keyword index). |
+| `GROQ_API_KEY` / `COHERE_API_KEY` | *(empty)* | Generation and reranking. Optional at boot — `/health/ready` reports `degraded`. |
+| `QDRANT_URL` | `http://localhost:6333` | Empty to use embedded on-disk Qdrant (single process only). |
+| `REDIS_URL` | `redis://localhost:6379/0` | Must be a Redis **Stack** server (vector index). |
+| `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `BAAI/bge-small-en-v1.5` / `384` | Validated against each other at startup. |
+| `SEMANTIC_CACHE_THRESHOLD` | `0.95` | Cosine similarity for a cache hit. Conservative by design — a miss costs latency, a wrong hit costs trust. |
+| `ENABLE_FAITHFULNESS_GUARD` | `true` | Post-generation entailment check against retrieved context. |
 
-## Quality gates
+## API
+
+| Endpoint | Auth | Description |
+|---|---|---|
+| `POST /chat` | required | Answer a question with citations. The faithfulness guard can block before the response returns. |
+| `POST /chat/stream` | required | Same pipeline as Server-Sent Events (`sources` → `token` → `done`). |
+| `POST /auth/login` | public | Email/password → JWT for the SPA (requires Postgres). |
+| `POST /auth/signup` | public | Self-service account (gated by `PUBLIC_SIGNUP_ENABLED`). |
+| `POST /auth/register` | admin | Create a tenant; returns the raw API key once. |
+| `POST /documents/upload` | required | Queue a PDF for async ingestion via Celery. |
+| `GET /health/live` · `GET /health/ready` | public | Liveness / readiness. |
+| `GET /metrics` | required | Prometheus exposition. |
+
+Errors return `{"detail": "..."}` with `401`, `422`, `429` (with `Retry-After`), or `500`.
+Internal error text is never leaked to clients; it goes to the logs, correlated by the
+`X-Request-ID` response header.
+
+## Key engineering decisions
+
+Three choices worth being able to explain:
+
+1. **Tenant-scoped semantic cache.** Entries are namespaced by tenant id + retrieval config +
+   prompt version, enforced as a hard RediSearch tag filter before similarity is computed, so a
+   near-identical query can never be served another tenant's answer. Hits whose original query
+   disagrees on numbers or reporting periods ("Q3 vs Q4") are also rejected.
+2. **Hybrid recall + cross-encoder rerank.** Finance text is dense in exact terms (tickers,
+   model names, Greek letters) that embeddings blur, so keyword recall is fused with dense
+   recall before a cross-encoder rescores the union.
+3. **Fail-closed grounding.** Sub-threshold passages are dropped and the service declines to
+   answer when none clear the floor. The faithfulness guard runs a second LLM entailment audit
+   before a non-cached answer is returned.
+
+The full rationale is in [docs/architecture.md](docs/architecture.md).
+
+## Live demo
+
+A deployed instance is available at
+[huggingface.co/spaces/zarikarharry1412/finance-rag-api](https://huggingface.co/spaces/zarikarharry1412/finance-rag-api).
+
+## Deployment and operations
+
+- [docs/deployment.md](docs/deployment.md) — public HTTPS checklist and production guard.
+- [docs/operations.md](docs/operations.md) — migrations, backups, and monitoring.
+
+## Development
 
 ```bash
 ruff check .            # lint
 ruff format --check .   # formatting
 mypy                    # types
-pytest -q               # tests
+pytest -q               # tests (no network; external clients are stubbed)
 ```
 
-`make check` runs all four. The test suite needs no network: every external client
-is stubbed.
-
-### Evaluating retrieval
-
-```bash
-cp tests/eval/golden_queries_template.json tests/eval/golden_queries.json
-# fill in verified relevant_sources, then:
-python tests/eval/run_eval.py --k 5
-```
-
-Reports `recall@k`, `MRR`, and the MRR lift from reranking. It runs offline against
-the live index, so it is deterministic and cheap enough to run after each
-ingestion. Queries whose ground truth you have not verified are reported as
-skipped rather than counted.
-
-The repository ships only the **template** file (real `golden_queries.json` is
-gitignored). There are **no published benchmark numbers** in this README until you
-add a verified golden set and record results here or in `PROJECT_COMPLETE_GUIDE.md`.
-
-Hybrid weights (`ENSEMBLE_WEIGHTS`, default 0.4/0.6) and recall sizes are sensible
-defaults; tune them against your golden set with `run_eval.py`.
-
-## Troubleshooting
-
-### Docker build: `lookup registry-1.docker.io: no such host`
-
-This is a **network/DNS** problem on the machine (Docker cannot reach Docker Hub), not an application bug.
-
-1. Confirm the browser can reach the internet; fix Wi‑Fi/VPN/firewall if needed.
-2. In **Docker Desktop → Settings → Docker Engine**, you can set DNS, e.g. `"dns": ["8.8.8.8", "1.1.1.1"]`, then **Apply & restart**.
-3. Retry: `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build`
-
-The API `Dockerfile` no longer uses `# syntax=docker/dockerfile:1`, so BuildKit does not need an extra pull of `docker/dockerfile:1` before building. You still need Hub access for base images (`python:3.13-slim`, `node:22-alpine`, `caddy:2-alpine`, etc.).
+`make check` runs all four. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Project layout
 
 ```
 src/
-  api/            FastAPI app, routes, schemas, auth/rate-limit deps, health probing
+  api/            FastAPI app, routes, auth, rate limiting, health
   cache/          Redis semantic cache
-  config/         validated settings
-  core/           pipeline orchestration
-  ingestion/      layout-aware loader and parent/child chunkers
-  llm/            generation and reranking
+  config/         validated settings + production guard
+  core/           pipeline, prompts, query/faithfulness guards
+  db/             Postgres schema, tenants, users, FTS keyword index
+  ingestion/      layout-aware loader, chunking, Celery tasks
+  llm/            Groq generation, Cohere reranking
   observability/  structured logging, request IDs, Prometheus metrics
-  retrieval/      Qdrant vector store, BM25 index, hybrid fusion
-scripts/ingest.py CLI ingestion pipeline
+  retrieval/      Qdrant vector store, BM25, hybrid fusion
+scripts/          ingestion, tenant management, deploy, backup
 frontend/         React + Vite SPA served by Caddy
-tests/            unit and API tests
-tests/eval/       retrieval evaluation harness
-reference/        optional upstream snippets (see reference/README.md); not used at runtime
+tests/            unit + API tests, offline retrieval eval
 ```
 
 ## Attribution
 
 The retrieval design follows patterns established by
-[RAGFlow](https://github.com/infiniflow/ragflow) (Apache-2.0):
-
-- **Layout-aware parsing** — `pymupdf4llm` uses ONNX layout/table models in the
-  same *family* as RAGFlow's DeepDoc (not a byte-for-byte copy of DeepDoc).
-- **Parent/child chunking** — large sections are kept for generation context while
-  small child chunks are embedded and matched, so retrieval stays precise without
-  starving the model of context.
-- **Multiple recall** — keyword and dense candidates are fused rather than picking
-  one, which matters for finance text where exact terms (ticker symbols, model
-  names, Greek letters) carry meaning that embeddings blur.
-- **Fused reranking** — a cross-encoder rescores the fused set before generation.
-
-RAGFlow itself is not deployed. A small `reference/` tree holds optional upstream
-snippets for comparison; this stack does not import them at runtime.
+[RAGFlow](https://github.com/infiniflow/ragflow) (Apache-2.0): layout-aware parsing,
+parent/child chunking, multi-recall fusion, and fused reranking. RAGFlow itself is not
+deployed; `reference/` holds optional upstream snippets for comparison.
 
 ## License
 

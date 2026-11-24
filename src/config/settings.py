@@ -204,7 +204,15 @@ class Settings(BaseSettings):
     # Semantic cache
     # ------------------------------------------------------------------
     semantic_cache_enabled: bool = Field(True, description="Enable the Redis semantic cache")
-    semantic_cache_threshold: float = Field(0.88, ge=0.0, le=1.0, description="Cosine similarity required for a hit")
+    semantic_cache_threshold: float = Field(
+        0.95,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Cosine similarity required for a hit. Deliberately conservative: a miss only "
+            "costs latency, while a wrong hit serves a confidently incorrect cached answer."
+        ),
+    )
     semantic_cache_ttl_seconds: int = Field(86400, ge=1, description="Cache entry lifetime in seconds")
     semantic_cache_max_candidates: int = Field(3, ge=1, description="Neighbours fetched per cache lookup")
     redis_url: str = Field("redis://localhost:6379/0", description="Redis connection URL")

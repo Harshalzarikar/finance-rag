@@ -25,7 +25,7 @@ def test_root_describes_the_service(client):
     response = client.get("/")
 
     assert response.status_code == 200
-    assert response.json()["service"] == "Policy Intelligence RAG API"
+    assert response.json()["service"] == "Quantitative Finance RAG API"
 
 
 def test_liveness_does_not_require_authentication(client):

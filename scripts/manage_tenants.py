@@ -150,7 +150,7 @@ def cmd_activate(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Manage tenants for the Policy Intelligence SaaS.",
+        description="Manage tenants for the Quantitative Finance RAG SaaS.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="command", required=True)

@@ -59,12 +59,16 @@ class _Cache:
     def __init__(self, hit: Any = None) -> None:
         self.hit = hit
         self.stored: list[tuple[str, str, list[dict[str, Any]]]] = []
+        self.read_scopes: list[str] = []
+        self.write_scopes: list[str] = []
 
-    def get(self, query: str) -> Any:
+    def get(self, query: str, *, scope: str = "default") -> Any:
         del query
+        self.read_scopes.append(scope)
         return self.hit
 
-    def set(self, query: str, answer: str, sources: list[dict[str, Any]]) -> None:
+    def set(self, query: str, answer: str, sources: list[dict[str, Any]], *, scope: str = "default") -> None:
+        self.write_scopes.append(scope)
         self.stored.append((query, answer, sources))
 
 
@@ -77,10 +81,11 @@ class _Store:
 
 
 class _Hit:
-    def __init__(self, answer: str, sources: list[dict[str, Any]]) -> None:
+    def __init__(self, answer: str, sources: list[dict[str, Any]], matched_query: str = "explain garch") -> None:
         self.answer = answer
         self.sources = sources
         self.similarity = 0.93
+        self.matched_query = matched_query
 
 
 class _DummyLLM:
@@ -276,6 +281,59 @@ def test_cache_miss_runs_the_pipeline_and_populates_the_cache():
     assert cache.stored[0][0].endswith("explain garch")
     assert cache.stored[0][1] == "A grounded answer."
     assert cache.stored[0][2][0]["source"] == "a.pdf"
+
+
+def test_cache_hit_with_conflicting_numbers_is_treated_as_a_miss():
+    cache = _Cache(
+        hit=_Hit(
+            "Q4 answer",
+            [{"source": "a.pdf", "page": 1, "score": None, "snippet": "x"}],
+            matched_query="what was q4 revenue",
+        )
+    )
+    pipeline = _build(documents=[_document("body", source="a.pdf")], cache=cache)
+
+    result = pipeline.run("what was q3 revenue")
+
+    assert result["cached"] is False
+    assert pipeline.retriever.queries == ["what was q3 revenue"]
+
+
+def test_cache_hit_with_matching_numbers_is_served():
+    cache = _Cache(
+        hit=_Hit(
+            "cached answer",
+            [{"source": "a.pdf", "page": 1, "score": None, "snippet": "x"}],
+            matched_query="what was q3 revenue",
+        )
+    )
+    pipeline = _build(cache=cache)
+
+    result = pipeline.run("what was q3 revenue")
+
+    assert result["cached"] is True
+    assert result["answer"] == "cached answer"
+
+
+def test_cache_scope_uses_the_same_namespace_for_reads_and_writes():
+    cache = _Cache()
+    pipeline = _build(documents=[_document("body", source="a.pdf")], cache=cache)
+
+    pipeline.run("explain garch", top_k_rerank=7)
+
+    assert cache.read_scopes and cache.write_scopes
+    assert cache.read_scopes[0] == cache.write_scopes[0]
+    assert cache.read_scopes[0].startswith("prompt:")
+
+
+def test_cache_scope_changes_with_the_filter_set():
+    cache = _Cache()
+    pipeline = _build(documents=[_document("body", source="a.pdf")], cache=cache)
+
+    pipeline.run("explain garch", top_k_rerank=3)
+    pipeline.run("explain garch", top_k_rerank=9)
+
+    assert cache.read_scopes[0] != cache.read_scopes[1]
 
 
 def test_candidates_are_capped_before_reranking(monkeypatch):

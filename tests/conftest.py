@@ -146,11 +146,12 @@ class FakeCache:
         self.hit = hit
         self.stored: list[tuple[str, str, list[dict[str, Any]]]] = []
 
-    def get(self, query: str):
-        del query
+    def get(self, query: str, **kwargs: Any):
+        del query, kwargs
         return self.hit
 
-    def set(self, query: str, answer: str, sources: list[dict[str, Any]]) -> None:
+    def set(self, query: str, answer: str, sources: list[dict[str, Any]], **kwargs: Any) -> None:
+        del kwargs
         self.stored.append((query, answer, sources))
 
 

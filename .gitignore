@@ -28,6 +28,7 @@ bm25_index.pkl
 ingestion_manifest.json
 *.log
 *.tmp
+backups/
 
 # --- Frontend -------------------------------------------------------------
 frontend/node_modules/

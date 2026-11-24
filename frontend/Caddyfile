@@ -11,6 +11,20 @@
 {$SITE_DOMAIN::80} {
 	encode gzip
 
+	header {
+		# No MIME sniffing; deny framing; minimal referrer information.
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+		# The SPA is a self-contained Vite build; the only third-party origin is
+		# Google Fonts. Inline styles are used by React components.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+		# Browsers ignore HSTS over plain HTTP; over HTTPS this pins the site for a year.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
 	handle /api/* {
 		uri strip_prefix /api
 		reverse_proxy api:8000 {

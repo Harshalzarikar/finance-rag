@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------
 # Build stage — resolve dependencies into a virtualenv we copy wholesale
 # ---------------------------------------------------------------------------
-FROM python:3.13-slim AS builder
+FROM python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90 AS builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_DEFAULT_TIMEOUT=120
@@ -33,7 +33,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # ---------------------------------------------------------------------------
 # Runtime stage
 # ---------------------------------------------------------------------------
-FROM python:3.13-slim AS runtime
+FROM python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90 AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -71,6 +71,8 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 WORKDIR /app
 COPY --chown=app:app src ./src
 COPY --chown=app:app scripts ./scripts
+COPY --chown=app:app alembic.ini ./alembic.ini
+COPY --chown=app:app migrations ./migrations
 
 EXPOSE 8000
 

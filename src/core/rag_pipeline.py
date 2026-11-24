@@ -29,6 +29,7 @@ from src.core.faithfulness_guard import FaithfulnessGuard
 from src.core.prompt_builder import (
     build_system_prompt,
     bypass_semantic_cache,
+    cache_hit_is_safe,
     cache_scope_for_prompt,
     effective_prompt_pack,
     wants_comprehensive_answer,
@@ -137,10 +138,18 @@ class RAGPipeline:
         pack = effective_prompt_pack(self._tenant_prompt_pack_id)
         return f"{pack.pack_id}@{pack.version}"
 
-    def _scoped_cache_query(self, query: str) -> str:
+    def _cache_scope(self, top_k: int) -> str:
+        """The tenant + retrieval-filter-set + prompt namespace for cache entries."""
+        settings = get_settings()
         pack = effective_prompt_pack(self._tenant_prompt_pack_id)
-        scope = cache_scope_for_prompt(pack.version, self.tenant_id, self._tenant_instructions)
-        return f"{scope}\n{query}"
+        return cache_scope_for_prompt(
+            pack.version,
+            self.tenant_id,
+            self._tenant_instructions,
+            top_k=top_k,
+            embedding_model=settings.embedding_model,
+            collection=settings.qdrant_collection_name,
+        )
 
     # ------------------------------------------------------------------
     # ------------------------------------------------------------------
@@ -162,11 +171,15 @@ class RAGPipeline:
             }
 
         comprehensive = wants_comprehensive_answer(query)
-        cache_query = self._scoped_cache_query(query)
+        cache_scope = self._cache_scope(top_k_rerank)
         use_semantic_cache = not bypass_semantic_cache(query, chat_history)
         if use_semantic_cache:
-            cached = self.cache.get(cache_query)
-            if cached is not None and self._should_cache_answer(cached.answer):
+            cached = self.cache.get(query, scope=cache_scope)
+            if (
+                cached is not None
+                and self._should_cache_answer(cached.answer)
+                and cache_hit_is_safe(query, cached.matched_query)
+            ):
                 return {
                     "answer": cached.answer,
                     "sources": cached.sources,
@@ -213,7 +226,7 @@ class RAGPipeline:
         rag_counters("answered")
 
         if use_semantic_cache and self._should_cache_answer(answer):
-            self.cache.set(cache_query, answer, sources)
+            self.cache.set(query, answer, sources, scope=cache_scope)
         return {
             "answer": answer,
             "sources": sources,
@@ -242,11 +255,15 @@ class RAGPipeline:
             return
 
         comprehensive = wants_comprehensive_answer(query)
-        cache_query = self._scoped_cache_query(query)
+        cache_scope = self._cache_scope(top_k_rerank)
         use_semantic_cache = not bypass_semantic_cache(query, chat_history)
         if use_semantic_cache:
-            cached = self.cache.get(cache_query)
-            if cached is not None and self._should_cache_answer(cached.answer):
+            cached = self.cache.get(query, scope=cache_scope)
+            if (
+                cached is not None
+                and self._should_cache_answer(cached.answer)
+                and cache_hit_is_safe(query, cached.matched_query)
+            ):
                 yield {"type": "sources", "sources": cached.sources, "cached": True}
                 yield {"type": "token", "value": cached.answer}
                 yield {
@@ -295,7 +312,7 @@ class RAGPipeline:
         if answer:
             rag_counters("answered")
             if use_semantic_cache and self._should_cache_answer(answer):
-                self.cache.set(cache_query, answer, sources)
+                self.cache.set(query, answer, sources, scope=cache_scope)
         yield {
             "type": "done",
             "cached": False,

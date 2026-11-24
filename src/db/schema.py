@@ -134,46 +134,20 @@ def get_session_factory(database_url: str):
 
 
 def init_db(database_url: str) -> None:
-    """Create tables and install the tsvector trigger if they don't exist yet.
+    """Apply pending Alembic migrations to the database.
 
-    Safe to call on every startup — ``CREATE TABLE IF NOT EXISTS`` and
-    ``CREATE INDEX IF NOT EXISTS`` are idempotent in Postgres.
+    Replaces the earlier ``Base.metadata.create_all`` + inline ``ALTER TABLE``
+    bootstrap. Migrations live under ``migrations/`` and are applied with
+    ``alembic upgrade head``, which is idempotent and safe to call on every startup.
     """
-    engine = get_engine(database_url)
-    Base.metadata.create_all(engine)
+    from pathlib import Path
 
-    # Idempotent migrations for columns added after the tables were first created.
-    # ``create_all`` only creates missing tables; it never alters existing ones, so
-    # an older volume would otherwise be missing ``tenant_id`` and fail at query time.
-    migration_sql = """
-    ALTER TABLE child_chunks_fts ADD COLUMN IF NOT EXISTS tenant_id VARCHAR NOT NULL DEFAULT 'default';
-    CREATE INDEX IF NOT EXISTS ix_child_chunks_fts_tenant ON child_chunks_fts (tenant_id);
-    ALTER TABLE parent_documents ADD COLUMN IF NOT EXISTS tenant_id VARCHAR NOT NULL DEFAULT 'default';
-    CREATE INDEX IF NOT EXISTS ix_parent_documents_tenant_source ON parent_documents (tenant_id, source);
-    ALTER TABLE tenants ADD COLUMN IF NOT EXISTS custom_instructions TEXT NOT NULL DEFAULT '';
-    ALTER TABLE tenants ADD COLUMN IF NOT EXISTS prompt_pack_id VARCHAR NULL;
-    """
-    with engine.begin() as conn:
-        conn.execute(__import__("sqlalchemy").text(migration_sql))
+    from alembic import command
+    from alembic.config import Config
 
-    # Install a trigger that keeps ``tsv`` in sync with ``content`` automatically.
-    # ``to_tsvector('english', content)`` is the Postgres equivalent of BM25
-    # tokenization for English text.
-    trigger_sql = """
-    CREATE OR REPLACE FUNCTION child_chunks_fts_tsv_update() RETURNS trigger AS $$
-    BEGIN
-        NEW.tsv := to_tsvector('english', coalesce(NEW.content, ''));
-        RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql;
-
-    DROP TRIGGER IF EXISTS tsvupdate ON child_chunks_fts;
-
-    CREATE TRIGGER tsvupdate
-        BEFORE INSERT OR UPDATE ON child_chunks_fts
-        FOR EACH ROW EXECUTE FUNCTION child_chunks_fts_tsv_update();
-    """
-    with engine.begin() as conn:
-        conn.execute(__import__("sqlalchemy").text(trigger_sql))
-
-    logger.info("Database schema is up to date.")
+    repo_root = Path(__file__).resolve().parents[2]
+    cfg = Config(str(repo_root / "alembic.ini"))
+    cfg.set_main_option("script_location", str(repo_root / "migrations"))
+    cfg.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(cfg, "head")
+    logger.info("Database migrations are up to date.")

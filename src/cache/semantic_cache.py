@@ -4,6 +4,13 @@ An incoming query is embedded with the same model used for retrieval and compare
 against previously answered queries. A neighbour at or above the configured
 cosine similarity short-circuits retrieval, reranking, and generation entirely.
 
+Every entry is written and read under a **scope** — a canonical string covering
+the tenant, the retrieval filter set, and the active prompt configuration. The
+scope is enforced as a hard RediSearch TAG pre-filter, so a lookup can only ever
+return an entry written under the identical scope. Similarity alone is never
+enough to cross tenants or filter sets, which is what makes a "92% match" safe to
+serve: two prompts can be lexically close and still live in different scopes.
+
 The previous (pre-``src/`` migration) implementation kept this in a process-local
 list, which meant every uvicorn worker had a cold cache. This version lives in
 Redis Stack's HNSW vector index so all workers share it.
@@ -24,7 +31,7 @@ from typing import Any
 
 import numpy as np
 import redis
-from redis.commands.search.field import NumericField, TextField, VectorField
+from redis.commands.search.field import NumericField, TagField, TextField, VectorField
 from redis.commands.search.index_definition import IndexDefinition, IndexType
 from redis.commands.search.query import Query
 
@@ -33,13 +40,28 @@ from src.retrieval.vector_store import get_embeddings
 
 logger = logging.getLogger(__name__)
 
-INDEX_NAME = "rag_semantic_cache"
-KEY_PREFIX = "rag:cache:"
+# Names are version-suffixed: v2 adds the ``scope`` tag that makes lookups
+# tenant- and filter-set-isolated. The v1 index and its keys age out via TTL.
+INDEX_NAME = "rag_semantic_cache_v2"
+KEY_PREFIX = "rag:cache:v2:"
+
+# Scope used when a caller does not supply one. Kept distinct from any real
+# tenant so unscoped callers never accidentally share entries with a tenant.
+DEFAULT_SCOPE = "default"
 
 # HNSW build parameters. M=16 / EF_CONSTRUCTION=200 is the standard
 # recall-vs-memory trade-off for embedding-sized indexes.
 _HNSW_PARAMS = {"TYPE": "FLOAT32", "DISTANCE_METRIC": "COSINE", "M": 16, "EF_CONSTRUCTION": 200}
 _VECTOR_ALGORITHM = "HNSW"
+
+
+def _scope_tag(scope: str) -> str:
+    """Map a human-readable scope to a Redis-safe TAG value.
+
+    TAG filters treat several characters (``:``, ``|``, spaces) specially, so the
+    scope is hashed to hex. Equal scopes map to equal tags; different scopes never do.
+    """
+    return hashlib.sha256(scope.encode("utf-8")).hexdigest()[:32]
 
 
 @dataclass
@@ -109,15 +131,22 @@ class SemanticCache:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def get(self, query: str, *, retry: bool = True) -> CacheHit | None:
-        """Return a cached answer for a semantically similar query, if any."""
+    def get(self, query: str, *, scope: str = DEFAULT_SCOPE, retry: bool = True) -> CacheHit | None:
+        """Return a cached answer for a semantically similar query within ``scope``.
+
+        ``scope`` is applied as a hard TAG pre-filter, so the search space is
+        restricted to entries written under the same scope before similarity is
+        considered. A different tenant, filter set, or prompt configuration is
+        therefore unable to produce a hit no matter how similar the text is.
+        """
         if self.client is None or not query.strip():
             return None
 
+        tag = _scope_tag(scope)
         try:
             self._ensure_index()
             response = self.client.ft(self.index_name).search(
-                Query(f"*=>[KNN {self.max_candidates} @vector $vec AS score]")
+                Query(f"(@scope:{{{tag}}})=>[KNN {self.max_candidates} @vector $vec AS score]")
                 .sort_by("score")
                 .return_fields("query", "answer", "sources", "score")
                 .dialect(2),
@@ -130,7 +159,7 @@ class SemanticCache:
             if retry and "no such index" in str(exc).lower():
                 logger.warning("Semantic cache index is missing — recreating it.")
                 self._index_ready = False
-                return self.get(query, retry=False)
+                return self.get(query, scope=scope, retry=False)
             self.stats.errors += 1
             logger.warning("Semantic cache lookup failed (%s) — bypassing cache.", exc)
             return None
@@ -162,20 +191,29 @@ class SemanticCache:
         self.stats.misses += 1
         return None
 
-    def set(self, query: str, answer: str, sources: list[dict[str, Any]]) -> None:
-        """Store an answer so later similar queries can reuse it."""
+    def set(
+        self,
+        query: str,
+        answer: str,
+        sources: list[dict[str, Any]],
+        *,
+        scope: str = DEFAULT_SCOPE,
+    ) -> None:
+        """Store an answer so later similar queries *in the same scope* can reuse it."""
         if self.client is None or not query.strip():
             return
 
+        tag = _scope_tag(scope)
         try:
             self._ensure_index()
-            key = f"{self.key_prefix}{hashlib.sha256(query.encode('utf-8')).hexdigest()[:32]}"
+            key = f"{self.key_prefix}{hashlib.sha256(f'{tag}|{query}'.encode('utf-8')).hexdigest()[:32]}"
             now = int(time.time())
             pipeline = self.client.pipeline()
             pipeline.hset(
                 key,
                 mapping={
                     "query": query,
+                    "scope": tag,
                     "vector": self._embed(query).tobytes(),
                     "answer": answer,
                     "sources": json.dumps(sources, default=str),
@@ -222,6 +260,7 @@ class SemanticCache:
                 _VECTOR_ALGORITHM,
                 {**_HNSW_PARAMS, "DIM": self.dim},
             ),
+            TagField("scope"),
             TextField("query"),
             TextField("answer"),
             TextField("sources"),

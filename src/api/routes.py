@@ -500,7 +500,7 @@ async def root() -> dict[str, Any]:
     """Service descriptor."""
     return {
         "status": "ok",
-        "service": "Policy Intelligence RAG API",
+        "service": "Quantitative Finance RAG API",
         "docs": "/docs",
         "endpoints": {
             "chat": "POST /chat",

@@ -10,7 +10,8 @@ import numpy as np
 import pytest
 import redis
 
-from src.cache.semantic_cache import CacheHit, SemanticCache
+from src.cache.semantic_cache import CacheHit, SemanticCache, _scope_tag
+from src.core.prompt_builder import cache_discriminators, cache_hit_is_safe
 
 
 class _Doc:
@@ -184,3 +185,100 @@ def test_cache_recovers_when_the_index_disappears():
 
     cache.get("second")
     assert client.recreations == 2
+
+
+class _RecordingPipeline:
+    def __init__(self, redis_client: _RecordingRedis) -> None:
+        self._redis = redis_client
+
+    def hset(self, key: str, mapping: dict) -> _RecordingPipeline:
+        self._redis.hashes[key] = mapping
+        return self
+
+    def expire(self, key: str, ttl: int) -> _RecordingPipeline:
+        self._redis.expires[key] = ttl
+        return self
+
+    def execute(self) -> list[int]:
+        return [1]
+
+
+class _RecordingRedis:
+    """Captures the search query string and the written hash mappings."""
+
+    def __init__(self, result: _SearchResult | None = None) -> None:
+        self._result = result if result is not None else _SearchResult([])
+        self.searches: list[str] = []
+        self.hashes: dict[str, dict] = {}
+        self.expires: dict[str, int] = {}
+
+    def ft(self, name: str):  # noqa: ANN201, ARG002
+        redis_client = self
+
+        class _Search:
+            def search(self, query, query_params=None):  # noqa: ANN001, ANN201
+                del query_params
+                redis_client.searches.append(query.query_string())
+                return redis_client._result
+
+        return _Search()
+
+    def pipeline(self) -> _RecordingPipeline:
+        return _RecordingPipeline(self)
+
+
+def _recording_cache(client: _RecordingRedis, threshold: float = 0.88) -> SemanticCache:
+    cache = SemanticCache(client, dim=4, threshold=threshold, ttl_seconds=60, max_candidates=1)
+    cache._ensure_index = lambda: None  # type: ignore[method-assign]
+    cache._embed = lambda text: np.ones(4, dtype=np.float32)  # type: ignore[method-assign]
+    return cache
+
+
+def test_lookup_is_restricted_by_scope_tag():
+    client = _RecordingRedis()
+    cache = _recording_cache(client)
+
+    cache.get("explain garch", scope="tenant-a")
+
+    assert client.searches
+    assert f"@scope:{{{_scope_tag('tenant-a')}}}" in client.searches[0]
+
+
+def test_same_query_in_different_scopes_writes_distinct_entries():
+    client = _RecordingRedis()
+    cache = _recording_cache(client)
+
+    cache.set("explain garch", "a", [], scope="tenant-a")
+    cache.set("explain garch", "a", [], scope="tenant-b")
+
+    assert len(client.hashes) == 2
+    assert all("scope" in mapping for mapping in client.hashes.values())
+    assert {mapping["scope"] for mapping in client.hashes.values()} == {
+        _scope_tag("tenant-a"),
+        _scope_tag("tenant-b"),
+    }
+
+
+def test_same_query_in_the_same_scope_overwrites_one_entry():
+    client = _RecordingRedis()
+    cache = _recording_cache(client)
+
+    cache.set("explain garch", "old", [], scope="tenant-a")
+    cache.set("explain garch", "new", [], scope="tenant-a")
+
+    assert len(client.hashes) == 1
+
+
+def test_discriminators_are_the_specific_tokens():
+    assert cache_discriminators("How did Q3 2023 revenue compare to Q4?") == {"q3", "q4", "2023"}
+
+
+def test_near_duplicate_prompts_with_different_numbers_are_not_interchangeable():
+    assert cache_hit_is_safe("What was Q3 revenue?", "What was Q4 revenue?") is False
+    assert cache_hit_is_safe("revenue in 2023", "revenue in 2024") is False
+    assert cache_hit_is_safe("revenue", "revenue in 2024") is False
+
+
+def test_paraphrases_with_matching_numbers_are_interchangeable():
+    assert cache_hit_is_safe("How did Q3 revenue change?", "what was the q3 revenue change") is True
+    assert cache_hit_is_safe("explain garch", "what is garch") is True

@@ -9,8 +9,9 @@ happens in the lifespan warm-up, and any failure there is reported by
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import anyio.to_thread
 from fastapi import FastAPI
@@ -27,12 +28,12 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, Any]:
     """Configure logging, initialise the database schema, and warm the pipeline."""
     settings = get_settings()
     configure_logging(settings.log_level, settings.log_json)
     logger.info(
-        "Starting Policy Intelligence RAG API (env=%s, model=%s, auth=%s, cache=%s, db=%s)",
+        "Starting Quantitative Finance RAG API (env=%s, model=%s, auth=%s, cache=%s, db=%s)",
         settings.app_env,
         settings.embedding_model,
         "on" if settings.auth_enabled else "off",

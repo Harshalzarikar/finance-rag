@@ -38,6 +38,8 @@ services:
       - rag_data:/data
     # No host port — traffic enters through the frontend Caddy proxy only.
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       qdrant:
         condition: service_healthy
       redis:
@@ -57,7 +59,7 @@ services:
         max-file: "3"
 
   qdrant:
-    image: qdrant/qdrant:v1.18.3
+    image: qdrant/qdrant:v1.18.3@sha256:0bd98fa7977f1e75694779359ca4e212822e5a71334e28421182f72f209d5286
     restart: unless-stopped
     volumes:
       - qdrant_data:/qdrant/storage
@@ -74,7 +76,7 @@ services:
         max-file: "3"
 
   redis:
-    image: redis/redis-stack-server:7.4.0-v3
+    image: redis/redis-stack-server:7.4.0-v3@sha256:7d8e657d60d525534d6abe96e7645ab30ef1b4f1ffedc6eeb2d4d4283b3a49b9
     restart: unless-stopped
     volumes:
       - redis_data:/data
@@ -91,7 +93,7 @@ services:
         max-file: "3"
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-raguser}
@@ -110,6 +112,19 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  migrate:
+    build:
+      context: .
+    image: advance-rag-api:latest
+    env_file: .env
+    environment:
+      <<: *api_db_env
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   frontend:
     build:
@@ -148,6 +163,8 @@ services:
       - ./real_pdfs:/pdfs:ro
     entrypoint: ["python", "scripts/ingest.py"]
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       qdrant:
         condition: service_healthy
       postgres:
@@ -166,8 +183,10 @@ services:
     volumes:
       - rag_data:/data
       - ./real_pdfs:/pdfs:ro
-    entrypoint: ["celery", "-A", "src.ingestion.tasks", "worker", "--loglevel=info", "--concurrency=2"]
+    command: ["celery", "-A", "src.ingestion.tasks", "worker", "--loglevel=info", "--concurrency=2"]
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       qdrant:

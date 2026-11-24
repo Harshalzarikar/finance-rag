@@ -22,7 +22,9 @@ frontend/        React SPA + Caddy
 reference/       Upstream RAGFlow snippets (not used at runtime)
 ```
 
-**Docs:** [README.md](README.md) (quick start), [PROJECT_FLOW.md](PROJECT_FLOW.md) (end-to-end flow), [DEPLOY.md](DEPLOY.md) (public HTTPS deploy).
+**Docs:** [README.md](README.md) (quick start), [docs/architecture.md](docs/architecture.md)
+(design), [docs/deployment.md](docs/deployment.md) (public HTTPS deploy), and
+[docs/operations.md](docs/operations.md) (migrations, backups, monitoring).
 
 ## Development setup
 
@@ -111,4 +113,5 @@ CLI scripts may adjust `sys.path` and use `# noqa: E402` after bootstrap. Prefer
 
 ## Questions
 
-See [PROJECT_FLOW.md](PROJECT_FLOW.md) for auth, ingest, and query flows. For production hosting, see [DEPLOY.md](DEPLOY.md).
+See [docs/architecture.md](docs/architecture.md) for the auth, ingest, and query flows.
+For production hosting, see [docs/deployment.md](docs/deployment.md).

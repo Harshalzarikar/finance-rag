@@ -45,6 +45,7 @@ torch==2.14.0
 # --- PostgreSQL (production document store + full-text keyword index) --------
 psycopg[binary]==3.3.6
 sqlalchemy==2.0.41
+alembic==1.16.5
 
 # --- Async ingestion task queue ---------------------------------------------
 # Plain celery (not celery[redis]): the [redis] extra pins redis<=5.2.1, which

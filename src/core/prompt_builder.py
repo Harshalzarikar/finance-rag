@@ -214,12 +214,51 @@ def plan_prompt(
     )
 
 
-def cache_scope_for_prompt(pack_version: str, tenant_id: str, tenant_instructions: str) -> str:
-    """Scope semantic cache so prompt or tenant instruction changes do not reuse stale answers."""
+def cache_scope_for_prompt(
+    pack_version: str,
+    tenant_id: str,
+    tenant_instructions: str,
+    *,
+    top_k: int = 0,
+    embedding_model: str = "",
+    collection: str = "",
+) -> str:
+    """Namespace a semantic-cache entry to its tenant, filter set, and prompt config.
+
+    The scope is enforced server-side as a hard cache filter, so entries only match
+    when *all* of these agree: the tenant, the retrieval filter set (top-k, embedding
+    model, collection), and the active prompt configuration (pack version, persona,
+    per-tenant instructions). A change to any one of them invalidates reuse.
+    """
     settings = get_settings()
     persona = settings.rag_persona.strip()
-    digest = hashlib.sha256(f"{pack_version}|{tenant_id}|{persona}|{tenant_instructions}".encode()).hexdigest()[:16]
+    digest = hashlib.sha256(
+        "|".join(
+            [pack_version, tenant_id, persona, tenant_instructions, str(top_k), embedding_model, collection]
+        ).encode()
+    ).hexdigest()[:16]
     return f"prompt:{digest}"
+
+
+# Numbers, reporting periods, and fiscal labels are what make two lexically close
+# prompts ask genuinely different questions ("Q3 vs Q4 revenue", "2023 vs 2024").
+# They must agree for a cached answer to be reused.
+_CACHE_DISCRIMINATOR_RE = re.compile(r"\d+(?:[.,]\d+)?|\bq[1-4]\b|\b(?:fy|h)[0-9]{1,4}\b")
+
+
+def cache_discriminators(text: str) -> frozenset[str]:
+    """Exact tokens that must match between two queries before reusing a cached answer."""
+    return frozenset(match.group(0) for match in _CACHE_DISCRIMINATOR_RE.finditer(text.lower()))
+
+
+def cache_hit_is_safe(query: str, matched_query: str) -> bool:
+    """Whether a cached answer for ``matched_query`` may be served for ``query``.
+
+    High embedding similarity is not sufficient on its own: near-duplicate prompts
+    that disagree on a number or reporting period must be treated as different
+    questions. A rejected hit is only a latency cost, so this errs toward a miss.
+    """
+    return cache_discriminators(query) == cache_discriminators(matched_query)
 
 
 def build_system_prompt(
