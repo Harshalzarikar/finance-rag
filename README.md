@@ -97,7 +97,8 @@ variables take precedence over `.env`.
 | `QDRANT_URL` | `http://localhost:6333` | Empty to use embedded on-disk Qdrant (single process only). |
 | `REDIS_URL` | `redis://localhost:6379/0` | Must be a Redis **Stack** server (vector index). |
 | `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `BAAI/bge-small-en-v1.5` / `384` | Validated against each other at startup. |
-| `SEMANTIC_CACHE_THRESHOLD` | `0.95` | Cosine similarity for a cache hit. Conservative by design — a miss costs latency, a wrong hit costs trust. |
+| `RERANK_MIN_SCORE` | `0.30` | Minimum reranker relevance for a passage to be cited; below it, the service declines to answer. |
+| `SEMANTIC_CACHE_THRESHOLD` | `0.88` | Cosine similarity required for a cache hit. |
 | `ENABLE_FAITHFULNESS_GUARD` | `true` | Post-generation entailment check against retrieved context. |
 
 ## API

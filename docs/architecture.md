@@ -221,8 +221,9 @@ Two implementation details:
 
 ### Relevance floor
 
-Passages scored below `RERANK_MIN_SCORE` are dropped before they can be cited, and if none
-clear the floor the pipeline returns a fixed decline message with empty sources and **does
+Passages scored below `RERANK_MIN_SCORE` (default `0.30`) are dropped before they can be
+cited, and if none clear the floor the pipeline returns a fixed decline message with empty
+sources and **does
 not call the LLM**. Retrieval always returns `k` results whether or not any are relevant;
 without the floor, an unanswerable query would return an honest "I don't know" alongside a
 list of near-miss citations that imply support that does not exist. The separation is wide:
@@ -251,7 +252,7 @@ boolean entailment audit of the answer against the retrieved context:
 ## Caching
 
 `SemanticCache` embeds the incoming query and searches a Redis Stack HNSW index for
-neighbours. A hit at or above `SEMANTIC_CACHE_THRESHOLD` (0.95) returns immediately,
+neighbours. A hit at or above `SEMANTIC_CACHE_THRESHOLD` (0.88) returns immediately,
 skipping retrieval, reranking, and generation.
 
 Every entry is written and read under a **scope** — a canonical string covering the tenant,
@@ -260,7 +261,7 @@ configuration. The scope is enforced as a hard RediSearch tag pre-filter, so the
 search only ever sees entries from the identical scope; similarity alone can never cross
 tenants or filter sets. On top of that, a hit whose original query disagrees on a number or
 reporting period ("Q3 vs Q4") is rejected, because those are different questions even at
-0.95+ cosine similarity.
+0.88+ cosine similarity.
 
 *Why Redis and not an in-process list:* a module-level list gave each uvicorn worker its own
 cold cache. Redis shares one index across workers and survives restarts.
@@ -268,7 +269,7 @@ cold cache. Redis shares one index across workers and survives restarts.
 *Why cosine and not exact matching:* "Black-Scholes model?" and "Explain Black-Scholes" are
 the same question.
 
-The threshold is deliberately conservative — a miss costs only latency, while a wrong hit
+The threshold trades recall for precision: a miss costs only latency, while a wrong hit
 serves a confidently incorrect answer that never touched the LLM. Every cache operation
 fails open: unreachable Redis means a miss, never a request outage.
 
