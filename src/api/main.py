@@ -23,6 +23,7 @@ from src.core.rag_pipeline import get_rag_pipeline
 from src.observability.logging import configure_logging
 from src.observability.metrics import setup_metrics
 from src.observability.middleware import RequestContextMiddleware
+from src.observability.tracing import configure_langsmith
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, Any]:
     """Configure logging, initialise the database schema, and warm the pipeline."""
     settings = get_settings()
     configure_logging(settings.log_level, settings.log_json)
+    configure_langsmith(settings)
     logger.info(
         "Starting Quantitative Finance RAG API (env=%s, model=%s, auth=%s, cache=%s, db=%s)",
         settings.app_env,

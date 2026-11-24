@@ -21,6 +21,8 @@ bcrypt==4.3.0
 # --- Observability ----------------------------------------------------------
 python-json-logger==4.2.0
 prometheus-fastapi-instrumentator==8.1.0
+# LangSmith tracing + evaluation (pins the transitive langchain-core dependency).
+langsmith==0.10.5
 
 # --- LangChain orchestration ------------------------------------------------
 langchain==1.3.14

@@ -89,6 +89,22 @@ The health endpoints are the first thing to alert on:
 - `GET /health/live` — process is up.
 - `GET /health/ready` — every required dependency probed; returns `503` when degraded.
 
+## LangSmith tracing and evaluation
+
+Set `LANGSMITH_API_KEY` and `LANGSMITH_TRACING=true` in `.env` to trace every query end to
+end in LangSmith (one `RAGPipeline.run` span per query, tagged with the tenant id). There is
+no other wiring — `src/observability/tracing.py` applies the settings at startup.
+
+Evaluate against the golden query set:
+
+```bash
+python scripts/eval_langsmith.py                        # upload the golden set + score
+python scripts/eval_langsmith.py --dataset my-project   # custom dataset name
+```
+
+This uploads runs and feedback (`source_citation_accuracy`, `faithfulness_passed`) to
+LangSmith for the same `golden_queries.json` used by the offline `run_eval.py` harness.
+
 ## Common runbooks
 
 **Rotate an admin key** — set a new `ADMIN_API_KEY` in `.env` and restart the api service.

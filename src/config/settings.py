@@ -224,6 +224,14 @@ class Settings(BaseSettings):
     log_json: bool = Field(True, description="Emit structured JSON logs")
 
     # ------------------------------------------------------------------
+    # LangSmith (tracing + evaluation)
+    # ------------------------------------------------------------------
+    langsmith_tracing: bool = Field(False, description="Enable LangSmith tracing when an API key is present")
+    langsmith_api_key: str = Field("", description="LangSmith API key (required for tracing and evaluation)")
+    langsmith_project: str = Field("quant-finance-rag", description="LangSmith project name for runs")
+    langsmith_endpoint: str = Field("", description="Optional self-hosted LangSmith URL; empty uses the SaaS")
+
+    # ------------------------------------------------------------------
     # Validators
     # ------------------------------------------------------------------
     @field_validator("api_keys", "cors_origins", mode="before")

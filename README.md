@@ -100,6 +100,7 @@ variables take precedence over `.env`.
 | `RERANK_MIN_SCORE` | `0.30` | Minimum reranker relevance for a passage to be cited; below it, the service declines to answer. |
 | `SEMANTIC_CACHE_THRESHOLD` | `0.88` | Cosine similarity required for a cache hit. |
 | `ENABLE_FAITHFULNESS_GUARD` | `true` | Post-generation entailment check against retrieved context. |
+| `LANGSMITH_API_KEY` / `LANGSMITH_TRACING` | *(empty)* / `false` | Optional. When set, every query is traced end to end in LangSmith. |
 
 ## API
 
@@ -155,6 +156,14 @@ pytest -q               # tests (no network; external clients are stubbed)
 ```
 
 `make check` runs all four. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Retrieval and generation quality are scored against a golden query set
+(`tests/eval/golden_queries.json`):
+
+```bash
+python tests/eval/run_eval.py --k 5        # offline: recall@k, MRR, rerank lift
+python scripts/eval_langsmith.py           # LangSmith: source-citation + faithfulness (needs LANGSMITH_API_KEY)
+```
 
 ## Project layout
 

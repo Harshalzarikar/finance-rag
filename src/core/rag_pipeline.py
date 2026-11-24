@@ -22,6 +22,8 @@ from typing import Any
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.stores import BaseStore
+from langsmith import traceable
+from langsmith.run_helpers import get_current_run_tree
 
 from src.cache.semantic_cache import SemanticCache, get_semantic_cache
 from src.config.settings import get_settings
@@ -153,10 +155,14 @@ class RAGPipeline:
 
     # ------------------------------------------------------------------
     # ------------------------------------------------------------------
+    @traceable(run_type="chain", name="RAGPipeline.run")
     def run(
         self, query: str, top_k_rerank: int = 5, chat_history: list[dict[str, str]] | None = None
     ) -> dict[str, Any]:
         """Answer ``query`` end to end, consulting the semantic cache first."""
+        run_tree = get_current_run_tree()
+        if run_tree is not None:
+            run_tree.add_metadata({"tenant_id": self.tenant_id, "top_k_rerank": top_k_rerank})
         query = self._rewrite_query(query, chat_history)
         guard_result = self.query_guard.check(query)
         if not guard_result.allowed:

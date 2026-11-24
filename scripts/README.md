@@ -10,6 +10,7 @@ Operational CLIs for this repo. Run from the repository root unless noted.
 | `verify_production_env.py` | Validate `.env` before deploy |
 | `deploy_production.ps1` | Windows: setup + verify + `docker compose up` + worker |
 | `backup.py` | Snapshot Postgres (`pg_dump`) + Qdrant collection to a timestamped directory |
+| `eval_langsmith.py` | Run the golden query set through LangSmith and score source-citation + faithfulness |
 | `debug_retrieval.py` | Ops: inspect retrieval/rerank per tenant (needs live stack) |
 | `generate_production_secrets.py` | **Deprecated** — points to `setup_production_env.py` |
 

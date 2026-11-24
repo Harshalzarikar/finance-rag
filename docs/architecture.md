@@ -315,6 +315,10 @@ a construction failure is a diagnosis, not a `500`.
   semantic-cache hits, misses, errors, writes, and hit rate.
 - Cache statistics are published through a custom collector that reads the live cache at
   scrape time, so there is one source of truth.
+- **LangSmith tracing** (optional, off by default). With `LANGSMITH_API_KEY` and
+  `LANGSMITH_TRACING=true`, every query is traced end to end: a top-level `RAGPipeline.run`
+  span tagged with the tenant id, with the Groq generation and any LangChain sub-runs nested
+  underneath. See `src/observability/tracing.py`. Without a key the integration is a no-op.
 
 ## Security
 
@@ -357,5 +361,7 @@ semantic cache exists to avoid.
 - **No query instruction** for the BGE model is applied, a measurable but unmeasured
   opportunity.
 - **Evaluation depends on a hand-built golden set** — `tests/eval/run_eval.py` measures
-  retrieval only; there is no automated faithfulness scoring.
-- **No observability backend** — metrics are exposed but nothing scrapes them by default.
+  retrieval (recall@k, MRR) offline, and `scripts/eval_langsmith.py` scores source-citation
+  accuracy and faithfulness in LangSmith once the golden set is verified.
+- **Metrics are exposed but not scraped by default** — Prometheus endpoints exist; a
+  Prometheus/Grafana stack (or LangSmith tracing) must be configured to watch them.
